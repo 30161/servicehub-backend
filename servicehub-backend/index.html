@@ -1,0 +1,1855 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProConnect - Smart Local Services</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- Replace CDN script with your local server script -->
+<script src="http://localhost:5000/socket.io/socket.io.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .fade-in { animation: fadeIn 0.4s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .page { display: none; }
+    .page.active { display: block; }
+    .hero-gradient { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    .modal.active { display: flex; }
+    .notification { position: fixed; top: 24px; right: 24px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 2000; display: none; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    .notification.active { display: block; }
+    .settings-drawer-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      background: rgba(15, 23, 42, 0.5);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .settings-drawer-overlay.open {
+      opacity: 1;
+      visibility: visible;
+    }
+    .settings-drawer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: min(100%, 760px);
+      height: 100%;
+      background: white;
+      transform: translateX(-110%);
+      transition: transform 0.3s ease;
+      box-shadow: 24px 0 60px rgba(15, 23, 42, 0.2);
+      overflow-y: auto;
+    }
+    .settings-drawer-overlay.open .settings-drawer {
+      transform: translateX(0);
+    }
+    .sos-pulse { animation: pulseSOS 1.5s infinite; }
+    @keyframes pulseSOS { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: scale(1.05); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } }
+    .mock-map-bg { background: repeating-linear-gradient(0deg, #e5e7eb, #e5e7eb 1px, transparent 1px, transparent 40px), repeating-linear-gradient(90deg, #e5e7eb, #e5e7eb 1px, #f3f4f6 1px, #f3f4f6 40px); }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans">
+
+  <!-- Navigation -->
+  <nav class="bg-white/95 backdrop-blur shadow-sm fixed w-full top-0 z-50 border-b border-slate-100">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+      <div class="flex items-center space-x-3 cursor-pointer" onclick="showPage('home')">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+          <i class="fas fa-shield-halved text-xl"></i>
+        </div>
+        <div>
+          <span class="text-xl font-extrabold tracking-tight text-slate-900">Pro<span class="text-indigo-600">Connect</span></span>
+          <span class="text-[10px] uppercase font-bold tracking-wider block text-slate-400 -mt-1">Verified Services Network</span>
+        </div>
+      </div>
+
+      <div class="hidden md:flex items-center space-x-6 text-sm font-medium">
+        <a href="#" onclick="showPage('home')" class="hover:text-indigo-600 transition">Home</a>
+        <a href="#" onclick="showPage('services')" class="hover:text-indigo-600 transition">Explore Services</a>
+        <a href="#" onclick="showPage('combos')" class="hover:text-indigo-600 transition flex items-center gap-1.5"><span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs font-bold">New</span> Combos</a>
+        <a href="#" onclick="showPage('groupbuy')" class="hover:text-indigo-600 transition flex items-center gap-1.5"><i class="fas fa-users-rays text-indigo-500"></i> Group Deals</a>
+        <a href="#" onclick="showPage('ai-diagnose')" class="hover:text-indigo-600 text-indigo-600 font-semibold flex items-center gap-1"><i class="fas fa-wand-magic-sparkles"></i> AI Diagnostics</a>
+        <a href="#" onclick="showPage('user-dashboard')" class="hover:text-indigo-600 transition">Bookings</a>
+      </div>
+      <div class="flex items-center space-x-3 relative">
+        <!-- SOS Button (Kept Intact) -->
+        <button onclick="triggerSOSModal()" class="sos-pulse bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 shadow-lg shadow-red-200 transition">
+          <i class="fas fa-tower-broadcast"></i>
+          <span>SOS</span>
+        </button>
+
+        <div class="relative">
+          <button id="nav-auth-btn" onclick="openAccountChoice()" class="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition">
+            Sign In
+          </button>
+
+          <div id="profile-dropdown" class="absolute right-0 top-12 hidden w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl z-50">
+            <div class="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                <i class="fas fa-user"></i>
+              </div>
+              <div>
+                <p id="profile-name" class="font-bold text-slate-900">User</p>
+                <p id="profile-email" class="text-xs text-slate-500">user@example.com</p>
+              </div>
+            </div>
+
+            <div class="mt-3 space-y-2 text-sm text-slate-700">
+              <div class="rounded-xl bg-slate-50 p-3">
+                <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Account</p>
+                <p id="profile-role" class="mt-1 font-semibold text-slate-800">customer</p>
+              </div>
+
+              <button type="button" onclick="toggleProfileSettings()" class="flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-left hover:bg-slate-50">
+                <span>Settings</span>
+                <i class="fas fa-gear text-slate-400"></i>
+              </button>
+
+              <button type="button" onclick="handleLogout()" class="flex w-full items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-left text-rose-700 hover:bg-rose-100">
+                <span>Log out</span>
+                <i class="fas fa-right-from-bracket"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div id="provider-map-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div class="w-full max-w-3xl rounded-3xl bg-white p-5 shadow-2xl">
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <h3 class="text-xl font-bold text-slate-900">Provider Location</h3>
+          <p class="text-xs text-slate-500">Live route tracking for the assigned technician</p>
+        </div>
+        <button onclick="closeProviderMap()" class="text-2xl font-bold text-slate-500">&times;</button>
+      </div>
+      <div id="provider-map" class="h-80 rounded-2xl border border-slate-200 overflow-hidden"></div>
+      <div class="mt-4 flex justify-between rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
+        <span id="provider-eta">Live ETA: calculating...</span>
+        <span id="provider-route-status">Route status: waiting for location</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Type Choice Modal -->
+  <div id="account-role-modal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-3xl p-7 w-full max-w-lg shadow-2xl mx-4 border border-slate-100">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div>
+          <h3 class="font-extrabold text-lg text-slate-900">Choose your account type</h3>
+          <p class="text-xs text-slate-500">Select how you want to use ProConnect</p>
+        </div>
+        <button onclick="closeRoleChoiceModal()" class="text-slate-400 hover:text-slate-700 text-2xl font-bold">&times;</button>
+      </div>
+
+      <div class="space-y-4 my-5">
+        <button type="button" onclick="selectAccountRole('customer')" class="w-full text-left bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-2xl p-4 transition">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-bold text-slate-900">I am a customer</p>
+              <p class="text-xs text-slate-500 mt-1">Book trusted services and manage bookings</p>
+            </div>
+            <i class="fas fa-user text-indigo-600 text-xl"></i>
+          </div>
+        </button>
+
+        <button type="button" onclick="selectAccountRole('provider')" class="w-full text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 rounded-2xl p-4 transition">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-bold text-slate-900">I am a service provider</p>
+              <p class="text-xs text-slate-500 mt-1">Create a provider profile and accept jobs</p>
+            </div>
+            <i class="fas fa-briefcase text-emerald-600 text-xl"></i>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="settings-drawer-overlay">
+    <div class="settings-drawer">
+      <div class="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-5 text-white">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.2em] text-indigo-100">Account</p>
+            <h3 class="mt-1 text-2xl font-extrabold">Profile Settings</h3>
+          </div>
+          <button type="button" onclick="closeSettingsModal()" class="text-2xl font-bold text-white/80 hover:text-white">&times;</button>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-[180px_1fr] min-h-full">
+        <aside class="border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50 p-4">
+          <div class="flex items-center gap-3 rounded-2xl bg-white p-3 shadow-sm border border-slate-100">
+            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+              <i class="fas fa-user"></i>
+            </div>
+            <div>
+              <p id="settings-sidebar-name" class="font-bold text-slate-900">User</p>
+              <p class="text-[11px] text-slate-500">Personal account</p>
+            </div>
+          </div>
+
+          <div class="mt-4 space-y-2">
+            <button type="button" data-settings-tab="profile" class="settings-tab-btn flex w-full items-center justify-between rounded-xl bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700">
+              <span><i class="fas fa-id-card mr-2"></i>Profile</span>
+            </button>
+            <button type="button" data-settings-tab="security" class="settings-tab-btn flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+              <span><i class="fas fa-shield-halved mr-2"></i>Security</span>
+            </button>
+            <button type="button" data-settings-tab="preferences" class="settings-tab-btn flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+              <span><i class="fas fa-sliders mr-2"></i>Preferences</span>
+            </button>
+          </div>
+        </aside>
+
+        <div class="p-5 md:p-6">
+          <form id="settings-form" class="space-y-5">
+            <div class="settings-panel" data-settings-panel="profile">
+              <div class="grid gap-4 md:grid-cols-2">
+                <div class="md:col-span-2">
+                  <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Full name</label>
+                  <input id="settings-name" type="text" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Email</label>
+                  <input id="settings-email" type="email" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Phone</label>
+                  <input id="settings-phone" type="tel" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="security">
+              <div class="space-y-4">
+                <div>
+                  <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Current password</label>
+                  <input type="password" placeholder="••••••••" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">New password</label>
+                  <input id="settings-password" type="password" placeholder="Leave blank to keep current password" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="preferences">
+              <div class="space-y-3">
+                <label class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                  <span>Push notifications</span>
+                  <input type="checkbox" checked class="h-4 w-4 accent-indigo-600" />
+                </label>
+                <label class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                  <span>SMS alerts</span>
+                  <input type="checkbox" checked class="h-4 w-4 accent-indigo-600" />
+                </label>
+                <label class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                  <span>Booking reminders</span>
+                  <input type="checkbox" checked class="h-4 w-4 accent-indigo-600" />
+                </label>
+              </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+              <button type="button" onclick="closeSettingsModal()" class="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button type="submit" class="flex-1 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-700">Save Changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="notification" class="notification">
+    <div class="flex items-center space-x-2">
+      <i class="fas fa-circle-check text-xl"></i>
+      <span id="notification-text" class="text-sm font-medium">Action complete</span>
+    </div>
+  </div>
+
+  <div class="pt-16 min-h-screen">
+
+    <!-- HOME PAGE -->
+    <div id="home-page" class="page active fade-in">
+      <section class="hero-gradient text-white py-16 px-4 relative overflow-hidden">
+        <div class="max-w-4xl mx-auto text-center relative z-10">
+          
+          <h1 class="text-2xl md:text-4xl font-extrabold tracking-tight mb-4">Smarter Home Services,Trusted Professionals </h1>
+          <div class="mb-8"></div>
+          <div class="flex flex-wrap justify-center gap-3">
+            <button onclick="showPage('ai-diagnose')" class="bg-white text-indigo-700 font-bold px-6 py-3 rounded-xl shadow-lg hover:bg-indigo-50 transition flex items-center gap-2">
+              <i class="fas fa-microchip text-indigo-600"></i> Run AI Diagnosis
+            </button>
+            <button onclick="showPage('groupbuy')" class="bg-indigo-900/60 backdrop-blur-md border border-white/20 text-white font-semibold px-6 py-3 rounded-xl hover:bg-indigo-900/80 transition flex items-center gap-2">
+              <i class="fas fa-users"></i> Neighborhood Pool (Save 10%)
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trust Bar -->
+      <section class="bg-white border-b border-slate-100 py-6 w-full shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <button type="button" onclick="openFavoritesModal()" class="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-100 text-left hover:border-indigo-200 hover:bg-indigo-50/40 transition">
+            <div class="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl flex-shrink-0">
+              <i class="fas fa-id-card-clip"></i>
+            </div>
+            <div class="text-left">
+              <p class="text-xs font-bold text-slate-900 leading-tight">Preferred Helper List</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">Favourites</p>
+            </div>
+          </button>
+          <div onclick="openVideoModal()" class="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-100 hover:border-purple-200 hover:bg-purple-50/40 cursor-pointer transition flex-shrink-0">
+            <div class="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-xl flex-shrink-0">
+              <i class="fas fa-video"></i>
+            </div>
+            <div class="text-left">
+              <p class="text-xs font-bold text-slate-900 leading-tight">Live Video Assist</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">5-minute remote triage</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-100">
+            <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl flex-shrink-0">
+              <i class="fas fa-vault"></i>
+            </div>
+            <div class="text-left">
+              <p class="text-xs font-bold text-slate-900 leading-tight">Escrow Protected</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">Pay only when satisfied</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Featured Services -->
+      <section class="max-w-7xl mx-auto px-4 py-12">
+        <div class="flex justify-between items-end mb-8">
+          <div>
+            <h2 class="text-2xl font-bold text-slate-900">Verified Local Technicians</h2>
+          </div>
+          <button onclick="showPage('services')" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800">View all &rarr;</button>
+        </div>
+        <div id="home-services-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+      </section>
+
+      <section class="bg-slate-900 text-white py-12">
+        <div class="max-w-7xl mx-auto px-4">
+          <div class="mb-6 flex items-center justify-between">
+            <h2 class="text-2xl font-bold">Trust & Safety</h2>
+            <button onclick="showPage('services')" class="rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold">View verified pros</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300"><i class="fas fa-id-card"></i></div>
+              <h3 class="font-bold">Verified ID Badges</h3>
+              <p class="mt-2 text-sm text-slate-300">Every professional is identity-verified and background checked.</p>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300"><i class="fas fa-shield-halved"></i></div>
+              <h3 class="font-bold">Money Safety</h3>
+              <p class="mt-2 text-sm text-slate-300">Funds stay protected in escrow until the secret OTP confirms completion.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- AI DIAGNOSTICS PAGE -->
+    <div id="ai-diagnose-page" class="page fade-in">
+      <section class="max-w-4xl mx-auto px-4 py-10">
+        <div class="text-center mb-8">
+          <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold"><i class="fas fa-brain mr-1"></i> AI Diagnostics Engine v3.2</span>
+          <h2 class="text-3xl font-extrabold text-slate-900 mt-2">Diagnose Any Appliance or Home Issue</h2>
+          <p class="text-sm text-slate-500 mt-1">Queries the live Node.js diagnostic engine endpoint.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Select Appliance / Category</label>
+              <select id="ai-category" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-600 focus:outline-none">
+                <option value="Air Conditioner">Split / Inverter Air Conditioner</option>
+                <option value="Main Electrical Circuit">Main Electrical Circuit Breaker / Switchboard</option>
+                <option value="Plumbing & Water Line">Plumbing / Pipe Line Pressure Leak</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Describe Symptoms or Error Codes</label>
+              <textarea id="ai-symptom-text" rows="3" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-600 focus:outline-none" placeholder="e.g. AC turns on, fan blows air, but compressor fails to start..."></textarea>
+            </div>
+
+            <button onclick="runAIDiagnosis()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+              <i class="fas fa-bolt"></i> Generate Diagnostic Breakdown
+            </button>
+          </div>
+
+          <!-- AI Output Card -->
+          <div id="ai-result-box" class="hidden mt-8 pt-8 border-t border-slate-200">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900"><i class="fas fa-circle-nodes text-indigo-600 mr-2"></i>AI Diagnostic Report</h3>
+              <span id="ai-confidence" class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">96% Match</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <p class="text-xs font-bold text-slate-500 uppercase">Probable Root Cause</p>
+                <p id="ai-root-cause" class="text-sm font-semibold text-slate-900 mt-1"></p>
+              </div>
+              <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <p class="text-xs font-bold text-slate-500 uppercase">Estimated Repair Range</p>
+                <p id="ai-price-est" class="text-sm font-semibold text-emerald-600 mt-1"></p>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 mb-6">
+              <p class="font-bold"><i class="fas fa-triangle-exclamation mr-1"></i> Safety Precaution:</p>
+              <p id="ai-precaution" class="mt-0.5"></p>
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+              <button onclick="showProviderMap()" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white">Track Provider</button>
+              <button onclick="placeMaskedCall()" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Masked Call</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- SERVICES DIRECTORY -->
+    <div id="services-page" class="page fade-in">
+      <section class="max-w-7xl mx-auto px-4 py-10">
+        <h2 class="text-3xl font-bold text-slate-900 mb-6">Verified Specialists</h2>
+        <div id="services-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+      </section>
+    </div>
+
+    <!-- BOOKING PAGE -->
+    <div id="booking-page" class="page fade-in">
+      <section class="max-w-3xl mx-auto px-4 py-10">
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 md:p-8">
+          <h2 class="text-2xl font-bold text-slate-900 mb-6" id="book-target-service">Book Service</h2>
+          <form onsubmit="handleCheckout(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Date</label>
+              <input type="date" required id="book-date" min="" max="" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Time Slot</label>
+              <select id="book-time" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                <option value="09:00 AM - 11:00 AM">Morning (09:00 AM - 11:00 AM)</option>
+                <option value="02:00 PM - 04:00 PM">Afternoon (02:00 PM - 04:00 PM)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Address</label>
+              <input type="text" id="book-address" required value="No. 14, Main Road, Vellanur, Chennai" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Payment Method</label>
+              <select id="payment-method" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                <option value="UPI">UPI</option>
+                <option value="Cards">Cards</option>
+                <option value="Net Banking">Net Banking</option>
+                <option value="Cash on Service">Cash on Service</option>
+              </select>
+            </div>
+            <div class="pt-4 flex justify-between items-center">
+              <p class="text-xl font-black text-slate-900" id="book-total-price">$65.00</p>
+              <button type="submit" class="bg-indigo-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-indigo-700 transition">Confirm with Escrow</button>
+            </div>
+            <div class="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-800">
+              <div class="flex items-center justify-between">
+                <span><i class="fas fa-lock mr-1"></i> Money Safety</span>
+                <span class="font-bold">OTP Release</span>
+              </div>
+              <p class="mt-1">Your payment is held safely. The worker gets paid only after you confirm the job with the shared OTP.</p>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <!-- USER DASHBOARD -->
+    <div id="user-dashboard-page" class="page fade-in">
+      <section class="max-w-5xl mx-auto px-4 py-10">
+        <h2 class="text-3xl font-bold text-slate-900 mb-6">Your Bookings</h2>
+
+        <div id="active-job-panel" class="mb-6 hidden rounded-3xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-6 shadow-sm">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Live service connection</p>
+              <h3 class="mt-2 text-2xl font-extrabold text-slate-900" id="active-job-title">No active booking</h3>
+            </div>
+            <span id="job-status-badge" class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">CONFIRMED</span>
+          </div>
+
+          <div class="mt-6 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+            <div class="space-y-4 text-sm text-slate-600">
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Service brief</p>
+                <div class="mt-3 space-y-2">
+                  <p><span class="font-semibold text-slate-800">Provider:</span> <span id="active-job-provider">-</span></p>
+                  <p><span class="font-semibold text-slate-800">Address:</span> <span id="active-job-address">-</span></p>
+                  <p><span class="font-semibold text-slate-800">AI summary:</span> <span id="active-job-ai">-</span></p>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Safety & funds</p>
+                <div class="mt-3 space-y-2">
+                  <p><span class="font-semibold text-slate-800">Escrow:</span> <span id="active-job-escrow">HELD_IN_ESCROW</span></p>
+                  <p><span class="font-semibold text-slate-800">Payment:</span> <span id="active-job-payment">UPI</span></p>
+                  <p><span class="font-semibold text-slate-800">OTP:</span> <span id="active-job-otp">****</span></p>
+                  <p><span class="font-semibold text-slate-800">Calls:</span> Masked call + secure chat enabled</p>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Before & after proof</p>
+                <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                    <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Before</p>
+                    <div class="flex h-24 items-center justify-center rounded-xl bg-gradient-to-br from-slate-200 via-slate-100 to-slate-300 text-slate-500">
+                      <i class="fas fa-camera text-xl"></i>
+                    </div>
+                  </div>
+                  <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                    <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">After</p>
+                    <div class="flex h-24 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-100 via-emerald-50 to-emerald-200 text-emerald-600">
+                      <i class="fas fa-check-circle text-xl"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Escrow release</p>
+                <div class="mt-3 flex gap-2">
+                  <input id="customer-otp-input" type="text" maxlength="4" placeholder="Enter 4-digit OTP" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" />
+                  <button type="button" onclick="confirmEscrowRelease()" class="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700">Confirm payment release</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-4 text-sm text-slate-600">
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Live actions</p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onclick="updateActiveJobStatus('COMPLETED')" class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">Completed</button>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Trust & safety</p>
+                <div class="mt-3 space-y-2">
+                  <p><i class="fas fa-shield-heart text-emerald-600 mr-2"></i>Verified ID badge active</p>
+                  <p><i class="fas fa-phone text-indigo-600 mr-2"></i>Masked calling ready</p>
+                  <p><i class="fas fa-circle-exclamation text-red-500 mr-2"></i>SOS contact active</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-4" id="dashboard-bookings-list"></div>
+      </section>
+    </div>
+
+    <!-- GROUP BUY PAGE -->
+    <div id="groupbuy-page" class="page fade-in">
+      <section class="max-w-6xl mx-auto px-4 py-10">
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-indigo-600">Neighborhood Group Buying</p>
+            <h2 class="mt-2 text-3xl font-bold text-slate-900">Save more with local service pools</h2>
+          </div>
+          <button class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white" onclick="renderGroupDeals()">Refresh Pools</button>
+        </div>
+        <div id="group-pools-list" class="grid gap-4 md:grid-cols-3"></div>
+      </section>
+    </div>
+
+    <!-- COMBOS PAGE -->
+    <div id="combos-page" class="page fade-in">
+      <section class="max-w-6xl mx-auto px-4 py-10">
+        <h2 class="text-3xl font-bold text-slate-900">Booking Combos</h2>
+        <div class="mt-6 grid gap-4 md:grid-cols-3">
+          <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p class="text-xs font-bold uppercase tracking-widest text-indigo-600">Combo A</p>
+            <h3 class="mt-2 text-xl font-bold">AC + Deep Clean</h3>
+            <p class="mt-2 text-sm text-slate-600">Includes inspection, filter clean, and safety pass.</p>
+            <p class="mt-4 text-2xl font-black text-slate-900">₹2,499</p>
+            <button onclick="bookCombo('AC + Deep Clean', 2499)" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Book Combo</button>
+          </div>
+          <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p class="text-xs font-bold uppercase tracking-widest text-indigo-600">Combo B</p>
+            <h3 class="mt-2 text-xl font-bold">Plumbing + Leak Check</h3>
+            <p class="mt-2 text-sm text-slate-600">Leak diagnostics, flush service, and sanitary check.</p>
+            <p class="mt-4 text-2xl font-black text-slate-900">₹1,799</p>
+            <button onclick="bookCombo('Plumbing + Leak Check', 1799)" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Book Combo</button>
+          </div>
+          <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p class="text-xs font-bold uppercase tracking-widest text-indigo-600">Combo C</p>
+            <h3 class="mt-2 text-xl font-bold">Electrical Safety Pack</h3>
+            <p class="mt-2 text-sm text-slate-600">Circuit testing, socket audit, and emergency reset.</p>
+            <p class="mt-4 text-2xl font-black text-slate-900">₹2,999</p>
+            <button onclick="bookCombo('Electrical Safety Pack', 2999)" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Book Combo</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:5000/api';
+  let socket;
+  try {
+    if (typeof io !== 'undefined') {
+      socket = io('http://localhost:5000');
+    }
+  } catch (e) {
+    console.warn('Socket connection failed:', e);
+  }
+
+  let services = [];
+  let userBookings = [];
+  let selectedService = null;
+  let selectedAccountRole = 'customer';
+  // Silent background logger - directly saves to backend MongoDB
+    function logUserActivity(actionType, details = {}) {
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+
+      const payload = {
+        userEmail: user ? user.email : 'Guest',
+        userName: user ? user.name : 'Guest',
+        actionType: actionType,
+        details: details
+      };
+
+      // Uses fetch with keepalive to send in the background silently
+      fetch(`${API_BASE}/activity/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(() => {});
+    }
+
+    // Automatically and invisibly captures clicks on interactive elements
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button, a, select, input');
+      if (!target) return;
+      if (target.tagName === 'A' && target.getAttribute('href') === '#') e.preventDefault();
+
+      const label = target.innerText.trim() || target.placeholder || target.id || target.name || target.tagName;
+      logUserActivity('CLICK_EVENT', {
+        element: target.tagName.toLowerCase(),
+        label: label,
+        id: target.id || undefined
+      });
+    });
+
+  function showPage(pageId) {
+    const resolvedPageId = String(pageId || 'home').replace('-page', '');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const target = document.getElementById(resolvedPageId + '-page');
+    if (target) {
+      target.classList.add('active');
+      window.location.hash = `#${resolvedPageId}-page`;
+    } else {
+      window.location.hash = '#home-page';
+    }
+    window.scrollTo(0, 0);
+  }
+    async function fetchProviders() {
+      try {
+        const res = await fetch(`${API_BASE}/providers`);
+        services = await res.json();
+        renderServicesList(services);
+        renderHomeServices(services);
+      } catch (err) {
+        console.error('Failed to fetch providers:', err);
+      }
+    }
+
+    function bookCombo(service, amount) {
+      selectedService = { id: '', name: 'ProConnect Combo', service, amount };
+      document.getElementById('book-target-service').textContent = `Book ${service}`;
+      document.getElementById('book-total-price').textContent = `₹${amount.toLocaleString('en-IN')}`;
+      showPage('booking');
+    }
+
+    function renderHomeServices(list) {
+      const container = document.getElementById('home-services-grid');
+      if (!container) return;
+      container.innerHTML = list.slice(0, 3).map(renderCardMarkup).join('');
+    }
+
+    function renderServicesList(list) {
+      const container = document.getElementById('services-grid');
+      if (!container) return;
+      container.innerHTML = list.map(renderCardMarkup).join('');
+    }
+
+    function renderCardMarkup(s) {
+      const providerId = s._id || s.id;
+      const favorites = getFavoriteIds();
+      const isFavorite = favorites.includes(String(providerId));
+      return `
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div class="flex justify-between items-start mb-3">
+            <h4 class="font-bold text-slate-900">${s.name}</h4>
+            <button type="button" onclick="toggleFavorite('${providerId}')" aria-label="${isFavorite ? 'Remove from' : 'Add to'} preferred helpers" class="text-rose-500 hover:text-rose-700"><i class="fa${isFavorite ? 's' : 'r'} fa-heart"></i></button>
+          </div>
+          <p class="text-xs text-slate-500 mb-2">${s.service}</p>
+          <div class="flex justify-between items-center text-xs py-2 border-t border-slate-100 mb-3">
+            <span class="text-amber-500 font-bold"><i class="fas fa-star mr-1"></i>${s.rating || 5.0}</span>
+            <span class="font-bold text-slate-900">$65/hr</span>
+          </div>
+          <button onclick="startBooking('${s._id || s.id}', '${s.name}', '${s.service}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition">
+            Book Visit
+          </button>
+        </div>
+      `;
+    }
+
+    function startBooking(id, name, service) {
+      document.getElementById('book-target-service').textContent = 'Book ' + service;
+      selectedService = { id, name, service, amount: 65 };
+      showPage('booking');
+    }
+
+    function getFavoriteIds() {
+      return JSON.parse(localStorage.getItem('preferredHelperIds') || '[]');
+    }
+
+    async function toggleFavorite(providerId) {
+      const id = String(providerId);
+      const favorites = getFavoriteIds();
+      const next = favorites.includes(id) ? favorites.filter(item => item !== id) : [...favorites, id];
+      if (currentUser && currentUser._id) {
+        try {
+          const response = await fetch(`${API_BASE}/users/${currentUser._id}/favorites`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerId: id, favorite: !favorites.includes(id) })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not update preferred helpers');
+          localStorage.setItem('preferredHelperIds', JSON.stringify(data.favoriteIds));
+        } catch (error) {
+          showNotification(error.message, true);
+          return;
+        }
+      } else {
+        localStorage.setItem('preferredHelperIds', JSON.stringify(next));
+      }
+      renderServicesList(services);
+      renderHomeServices(services);
+      showNotification(getFavoriteIds().includes(id) ? 'Added to preferred helpers.' : 'Removed from preferred helpers.');
+    }
+
+    async function refreshFavorites() {
+      if (!currentUser || !currentUser._id) return;
+      try {
+        const response = await fetch(`${API_BASE}/users/${currentUser._id}/favorites`);
+        const data = await response.json();
+        if (response.ok) localStorage.setItem('preferredHelperIds', JSON.stringify(data.favoriteIds));
+      } catch (error) {
+        console.warn('Unable to refresh preferred helpers:', error);
+      }
+    }
+
+    function openFavoritesModal() {
+      const modal = document.getElementById('favorites-modal');
+      const container = document.getElementById('favorites-list-container');
+      const favoriteIds = getFavoriteIds();
+      const favorites = services.filter(provider => favoriteIds.includes(String(provider._id || provider.id)));
+      if (container) {
+        container.innerHTML = favorites.length ? favorites.map(provider => `
+          <div class="flex items-center justify-between rounded-xl border border-slate-200 p-3">
+            <div><p class="font-bold text-sm">${provider.name}</p><p class="text-xs text-slate-500">${provider.service}</p></div>
+            <button type="button" onclick="startBooking('${provider._id || provider.id}', '${provider.name}', '${provider.service}'); closeFavoritesModal();" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">Book</button>
+          </div>`).join('') : '<p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No preferred helpers yet. Tap the heart on a provider card to add one.</p>';
+      }
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    async function runAIDiagnosis() {
+      const category = document.getElementById('ai-category').value;
+      const symptoms = document.getElementById('ai-symptom-text').value;
+
+      try {
+        const res = await fetch(`${API_BASE}/ai/diagnose`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category, symptoms })
+        });
+        const data = await res.json();
+
+        document.getElementById('ai-result-box').classList.remove('hidden');
+        document.getElementById('ai-confidence').textContent = `${data.confidence} Match`;
+        document.getElementById('ai-root-cause').textContent = data.probableRootCause;
+        document.getElementById('ai-price-est').textContent = data.estimatedCost;
+        document.getElementById('ai-precaution').textContent = data.precaution;
+      } catch (err) {
+        alert('Could not connect to AI backend');
+      }
+    }
+
+    function getBookingDateRange() {
+      const today = new Date();
+      const minDate = new Date(today);
+      const maxDate = new Date(today);
+      maxDate.setDate(today.getDate() + 7);
+
+      const format = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      return { minDate: format(minDate), maxDate: format(maxDate) };
+    }
+
+    function setupBookingDateLimit() {
+      const bookingDateInput = document.getElementById('book-date');
+      if (!bookingDateInput) return;
+      const { minDate, maxDate } = getBookingDateRange();
+      bookingDateInput.min = minDate;
+      bookingDateInput.max = maxDate;
+      const currentValue = bookingDateInput.value;
+      if (currentValue && (currentValue < minDate || currentValue > maxDate)) {
+        bookingDateInput.value = minDate;
+      }
+      if (!currentValue) {
+        bookingDateInput.value = minDate;
+      }
+    }
+
+    async function handleCheckout(e) {
+      e.preventDefault();
+      const bookingDate = document.getElementById('book-date').value;
+      const { minDate, maxDate } = getBookingDateRange();
+      if (!bookingDate || bookingDate < minDate || bookingDate > maxDate) {
+        showNotification('Please select a booking date between today and 7 days ahead.', true);
+        return;
+      }
+
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      const paymentMethod = document.getElementById('payment-method')?.value || 'UPI';
+      const payload = {
+        customerId: user && user._id,
+        customerEmail: user && user.email,
+        service: selectedService ? selectedService.service : 'General Service',
+        date: document.getElementById('book-date').value || '2026-08-28',
+        timeSlot: document.getElementById('book-time').value,
+        address: document.getElementById('book-address').value,
+        amount: selectedService && selectedService.amount ? selectedService.amount : 65,
+        paymentMethod,
+        escrowStatus: 'HELD_IN_ESCROW',
+        status: 'CONFIRMED'
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/bookings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          const booking = await res.json();
+          userBookings.unshift(booking);
+          syncActiveJobFromBooking({
+            ...booking,
+            providerName: selectedService && selectedService.name ? selectedService.name : 'Trusted ProConnect provider',
+            providerPhone: '+91 98765 43210',
+            issueSummary: `${selectedService ? selectedService.service : 'General service'} request raised by the customer.`,
+            aiSummary: 'AI diagnosis recommends a standard service check before technician arrival.'
+          });
+          renderDashboard();
+          showPage('user-dashboard');
+        }
+      } catch (err) {
+        alert('Booking failed');
+      }
+    }
+
+    async function refreshUserBookings() {
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      if (!user || !user.email) {
+        userBookings = [];
+        renderDashboard();
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({ email: user.email });
+        if (user._id) params.set('customerId', user._id);
+        const response = await fetch(`${API_BASE}/bookings?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load bookings');
+        userBookings = Array.isArray(data) ? data.sort((a, b) => {
+          const aTime = new Date(a.createdAt || a.date || 0).getTime();
+          const bTime = new Date(b.createdAt || b.date || 0).getTime();
+          return bTime - aTime;
+        }) : [];
+        renderDashboard();
+      } catch (error) {
+        showNotification(error.message, true);
+      }
+    }
+
+    function getActiveJob() {
+      try {
+        return JSON.parse(localStorage.getItem('proconnectActiveJob') || 'null');
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function saveActiveJob(job) {
+      if (!job) return;
+      localStorage.setItem('proconnectActiveJob', JSON.stringify(job));
+      window.dispatchEvent(new CustomEvent('proconnect-job-sync', { detail: job }));
+    }
+
+    function normalizeActiveJob(job) {
+      const current = job || {};
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      return {
+        _id: current._id || 'demo-job',
+        service: current.service || 'General Service',
+        issueSummary: current.issueSummary || 'Customer reported a service issue for review.',
+        aiSummary: current.aiSummary || 'System flagged a common service issue before technician dispatch.',
+        address: current.address || 'No address provided',
+        date: current.date || new Date().toISOString().slice(0, 10),
+        timeSlot: current.timeSlot || 'Flexible',
+        amount: current.amount || 65,
+        paymentMethod: current.paymentMethod || 'UPI',
+        otp: current.otp || '****',
+        status: current.status || 'CONFIRMED',
+        escrowStatus: current.escrowStatus || 'HELD_IN_ESCROW',
+        providerName: current.providerName || 'Trusted ProConnect provider',
+        providerPhone: current.providerPhone || '+91 98765 43210',
+        customerName: current.customerName || (user && user.name) || 'Customer'
+      };
+    }
+
+    function syncActiveJobFromBooking(booking) {
+      if (!booking) return;
+      const next = normalizeActiveJob({
+        ...getActiveJob(),
+        ...booking,
+        providerName: booking.providerName || 'Trusted ProConnect provider',
+        providerPhone: booking.providerPhone || '+91 98765 43210'
+      });
+      saveActiveJob(next);
+      renderActiveJob();
+    }
+
+    function updateActiveJobStatus(status) {
+      const current = getActiveJob() || (userBookings[0] ? userBookings[0] : null);
+      if (!current) return;
+      const next = normalizeActiveJob({
+        ...current,
+        status,
+        escrowStatus: status === 'COMPLETED' ? 'RELEASED_TO_PROVIDER' : current.escrowStatus || 'HELD_IN_ESCROW'
+      });
+      saveActiveJob(next);
+      renderActiveJob();
+    }
+
+    async function confirmEscrowRelease() {
+      const job = getActiveJob() || userBookings[0];
+      const otp = (document.getElementById('customer-otp-input') || {}).value || '';
+
+      if (!job || !job._id) {
+        showNotification('No active booking is connected for escrow release.', true);
+        return;
+      }
+
+      if (!otp || otp.length !== 4) {
+        showNotification('Enter the 4-digit OTP to release the escrow payment.', true);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/bookings/${job._id}/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ otp })
+        });
+        const data = await response.json();
+
+        if (!response.ok) throw new Error(data.message || data.error || 'OTP confirmation failed');
+
+        const updatedJob = normalizeActiveJob({ ...job, otp, status: 'COMPLETED', escrowStatus: 'RELEASED_TO_PROVIDER' });
+        saveActiveJob(updatedJob);
+        const index = userBookings.findIndex(item => String(item._id) === String(job._id));
+        if (index >= 0) {
+          userBookings[index] = { ...userBookings[index], ...updatedJob, escrowStatus: 'RELEASED_TO_PROVIDER', status: 'COMPLETED' };
+        }
+        renderActiveJob();
+        renderDashboard();
+        showNotification('Escrow released and payment approved.');
+      } catch (error) {
+        showNotification(error.message || 'Escrow release failed', true);
+      }
+    }
+
+    function renderActiveJob() {
+      const panel = document.getElementById('active-job-panel');
+      if (!panel) return;
+
+      const activeJob = normalizeActiveJob(getActiveJob() || userBookings[0]);
+      if (!activeJob || !activeJob.service || activeJob.service === 'General Service' && !userBookings.length) {
+        panel.classList.add('hidden');
+        return;
+      }
+
+      panel.classList.remove('hidden');
+      document.getElementById('active-job-title').textContent = `${activeJob.service} job`;
+      document.getElementById('job-status-badge').textContent = activeJob.status;
+      document.getElementById('job-status-badge').className = `rounded-full px-3 py-1 text-xs font-bold ${
+        activeJob.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' :
+        activeJob.status === 'JOB_STARTED' ? 'bg-sky-100 text-sky-700' :
+        activeJob.status === 'ARRIVED' ? 'bg-amber-100 text-amber-700' :
+        'bg-indigo-100 text-indigo-700'
+      }`;
+      document.getElementById('active-job-provider').textContent = activeJob.providerName;
+      document.getElementById('active-job-address').textContent = activeJob.address;
+      document.getElementById('active-job-ai').textContent = activeJob.aiSummary;
+      document.getElementById('active-job-escrow').textContent = activeJob.escrowStatus;
+      document.getElementById('active-job-otp').textContent = activeJob.otp;
+      const paymentLabel = document.getElementById('active-job-payment');
+      if (paymentLabel) {
+        paymentLabel.textContent = activeJob.paymentMethod || 'UPI';
+      }
+
+      const customerOtpInput = document.getElementById('customer-otp-input');
+      const confirmButton = document.querySelector('#active-job-panel button[onclick*="confirmEscrowRelease"]');
+      const hasOtpFromProvider = !!(activeJob.otp && activeJob.otp !== '****');
+      if (customerOtpInput) {
+        customerOtpInput.value = hasOtpFromProvider ? activeJob.otp : '';
+        customerOtpInput.disabled = activeJob.escrowStatus === 'RELEASED_TO_PROVIDER' || !hasOtpFromProvider;
+      }
+      if (confirmButton) {
+        const canRelease = hasOtpFromProvider && activeJob.status === 'COMPLETED' && activeJob.escrowStatus !== 'RELEASED_TO_PROVIDER';
+        confirmButton.disabled = !canRelease;
+        confirmButton.className = canRelease
+          ? 'rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700'
+          : 'rounded-xl bg-slate-300 px-3 py-2 text-xs font-bold text-slate-500 cursor-not-allowed';
+      }
+    }
+
+    function renderDashboard() {
+      const container = document.getElementById('dashboard-bookings-list');
+      if (!userBookings.length) {
+        container.innerHTML = '<div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No bookings found for this account yet.</div>';
+        renderActiveJob();
+        return;
+      }
+
+      const activeStatuses = ['CONFIRMED', 'PROVIDER_EN_ROUTE', 'ARRIVED', 'JOB_STARTED', 'COMPLETED'];
+      const currentBookings = userBookings.filter(b => activeStatuses.includes(b.status || 'CONFIRMED'));
+      const pastBookings = userBookings.filter(b => !currentBookings.some(item => String(item._id) === String(b._id)));
+      const sectionBuilder = (label, items) => {
+        if (!items.length) return '';
+        return `
+          <div class="mb-5">
+            <div class="mb-3 flex items-center gap-2">
+              <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-600"></span>
+              <h4 class="text-sm font-bold uppercase tracking-[0.2em] text-slate-600">${label}</h4>
+            </div>
+            <div class="space-y-4">
+              ${items.map(b => `
+                <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                  <div class="flex justify-between items-center gap-3">
+                    <h4 class="font-bold text-slate-900">${b.service}</h4>
+                    <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">${b.status || 'CONFIRMED'}</span>
+                  </div>
+                  <p class="text-xs text-slate-500 mt-1">${b.date || 'N/A'} &bull; ${b.timeSlot || 'Flexible'}</p>
+                  <p class="text-xs text-slate-600 mt-1"><i class="fas fa-location-dot text-red-500 mr-1"></i>${b.address || 'Address not provided'}</p>
+                  <div class="mt-3 flex items-center justify-between rounded-xl bg-slate-50 p-3 text-xs">
+                    <span>Payment: ${b.paymentMethod || 'UPI'}</span>
+                    <span class="font-bold text-indigo-600">OTP: ${b.otp || '******'}</span>
+                  </div>
+                  <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Escrow: ${b.escrowStatus || 'HELD_IN_ESCROW'}</span>
+                    <span>${b.createdAt ? new Date(b.createdAt).toLocaleDateString() : 'Recent'}</span>
+                  </div>
+                  <button type="button" onclick="syncActiveJobFromBooking(${JSON.stringify(b).replace(/"/g, '&quot;')})" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Connect to provider live job</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      };
+
+      const output = [
+        sectionBuilder('Current bookings', currentBookings),
+        sectionBuilder('Previous bookings', pastBookings)
+      ].filter(Boolean).join('');
+      container.innerHTML = output;
+      const latestBooking = userBookings[0];
+      if (latestBooking) syncActiveJobFromBooking(latestBooking);
+    }
+    window.addEventListener('storage', () => {
+      const activeJob = getActiveJob();
+      if (activeJob) {
+        renderActiveJob();
+      }
+      refreshUserBookings();
+    });
+
+    let isRegisterMode = false;
+    let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    let localStream = null;
+    let peerConnection = null;
+    const currentRoom = 'servicehub-demo-room';
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let providerMap = null;
+    let providerMarker = null;
+    let trackedProviderId = null;
+    let googleMapsReady = false;
+
+    async function loadGoogleMaps() {
+      if (window.google && window.google.maps) return true;
+      const response = await fetch(`${API_BASE}/config`);
+      const config = await response.json();
+      if (!config.googleMapsApiKey) return false;
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.googleMapsApiKey)}`;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+      googleMapsReady = true;
+      return true;
+    }
+
+    function createPeerConnection() {
+      peerConnection = new RTCPeerConnection(rtcConfig);
+      peerConnection.onicecandidate = event => {
+        if (event.candidate && socket) socket.emit('ice-candidate', { roomId: currentRoom, candidate: event.candidate });
+      };
+      peerConnection.ontrack = event => {
+        const remoteVideo = document.getElementById('remoteVideo');
+        if (remoteVideo) remoteVideo.srcObject = event.streams[0];
+      };
+      if (localStream) localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      return peerConnection;
+    }
+
+    if (socket) {
+      socket.on('video-peer-joined', async () => {
+        if (!peerConnection) createPeerConnection();
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('video-offer', { roomId: currentRoom, offer });
+      });
+      socket.on('video-offer', async offer => {
+        if (!peerConnection) createPeerConnection();
+        await peerConnection.setRemoteDescription(offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit('video-answer', { roomId: currentRoom, answer });
+      });
+      socket.on('video-answer', answer => peerConnection && peerConnection.setRemoteDescription(answer));
+      socket.on('ice-candidate', candidate => peerConnection && peerConnection.addIceCandidate(candidate));
+      socket.on('provider-location-updated', data => {
+        if (String(data.providerId) === String(trackedProviderId)) updateProviderMarker(data.location);
+      });
+    }
+
+    function updateAuthUI() {
+      const navBtn = document.getElementById('nav-auth-btn');
+      const profileDropdown = document.getElementById('profile-dropdown');
+      const profileName = document.getElementById('profile-name');
+      const profileEmail = document.getElementById('profile-email');
+      const profileRole = document.getElementById('profile-role');
+
+      if (!navBtn) return;
+
+      if (currentUser) {
+        navBtn.innerText = `Hi, ${currentUser.name || currentUser.email.split('@')[0]}`;
+        navBtn.onclick = () => {
+          if (profileDropdown) {
+            profileDropdown.classList.toggle('hidden');
+          }
+        };
+        navBtn.className = "text-xs font-semibold px-4 py-2 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 transition";
+
+        if (profileName) profileName.textContent = currentUser.name || 'User';
+        if (profileEmail) profileEmail.textContent = currentUser.email || 'user@example.com';
+        if (profileRole) profileRole.textContent = currentUser.role || 'customer';
+      } else {
+        navBtn.innerText = 'Sign In';
+        navBtn.onclick = openAccountChoice;
+        navBtn.className = "text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition";
+        if (profileDropdown) profileDropdown.classList.add('hidden');
+      }
+    }
+
+    function setActiveSettingsTab(tabName = 'profile') {
+      document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+        const isActive = btn.dataset.settingsTab === tabName;
+        btn.classList.toggle('bg-indigo-50', isActive);
+        btn.classList.toggle('text-indigo-700', isActive);
+        btn.classList.toggle('font-semibold', isActive);
+        btn.classList.toggle('text-slate-600', !isActive);
+        btn.classList.toggle('hover:bg-slate-100', !isActive);
+      });
+
+      document.querySelectorAll('.settings-panel').forEach(panel => {
+        const isActive = panel.dataset.settingsPanel === tabName;
+        panel.classList.toggle('hidden', !isActive);
+      });
+    }
+
+    function toggleProfileSettings() {
+      const profileDropdown = document.getElementById('profile-dropdown');
+      if (profileDropdown) profileDropdown.classList.add('hidden');
+
+      const modal = document.getElementById('settings-modal');
+      if (!modal) return;
+
+      if (!currentUser) return;
+      document.getElementById('settings-name').value = currentUser.name || '';
+      document.getElementById('settings-email').value = currentUser.email || '';
+      document.getElementById('settings-phone').value = currentUser.phone || '';
+      document.getElementById('settings-password').value = '';
+      document.getElementById('settings-sidebar-name').textContent = currentUser.name || 'User';
+      setActiveSettingsTab('profile');
+      modal.classList.add('open');
+      showNotification('Profile settings opened');
+    }
+
+    function closeSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      if (modal) {
+        modal.classList.remove('open');
+      }
+    }
+
+    document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => setActiveSettingsTab(btn.dataset.settingsTab));
+    });
+
+    function showAuthMessage(message, isError = false) {
+      const box = document.getElementById('auth-message');
+      if (!box) return;
+      box.textContent = message;
+      box.className = isError
+        ? 'mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700'
+        : 'mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700';
+    }
+
+    function openAuthModal() {
+      const modal = document.getElementById('auth-modal');
+      const message = document.getElementById('auth-message');
+      if (message) message.textContent = '';
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeRoleChoiceModal() {
+      const modal = document.getElementById('account-role-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function selectAccountRole(role) {
+      selectedAccountRole = role;
+      closeRoleChoiceModal();
+
+      if (role === 'provider') {
+        const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+        if (savedUser && savedUser.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+        window.location.href = 'provider-signup.html';
+        return;
+      }
+
+      showAuthMessage('Customer sign-in is ready. Please continue below.', false);
+      openAuthModal();
+    }
+
+    function closeAuthModal() {
+      const modal = document.getElementById('auth-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function toggleAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      const nameField = document.getElementById('auth-name-field');
+      const title = document.getElementById('auth-title');
+      const submitBtn = document.getElementById('auth-submit-btn');
+      const toggleText = document.getElementById('auth-toggle-text');
+
+      if (isRegisterMode) {
+        nameField.classList.remove('hidden');
+        title.innerText = 'Create an Account';
+        submitBtn.innerText = 'Sign Up';
+        toggleText.innerHTML = `Already have an account? <button type="button" onclick="toggleAuthMode()" class="text-indigo-600 font-bold hover:underline">Sign In</button>`;
+      } else {
+        nameField.classList.add('hidden');
+        title.innerText = 'Welcome to ProConnect';
+        submitBtn.innerText = 'Sign In';
+        toggleText.innerHTML = `Don't have an account? <button type="button" onclick="toggleAuthMode()" class="text-indigo-600 font-bold hover:underline">Register</button>`;
+      }
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const name = document.getElementById('auth-name') ? document.getElementById('auth-name').value.trim() : '';
+
+      const endpoint = isRegisterMode ? '/auth/register' : '/auth/login';
+      const payload = isRegisterMode
+        ? { name, email, password, role: selectedAccountRole || 'customer' }
+        : { email, password, role: selectedAccountRole || 'customer' };
+
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const message = data.error || data.message || 'Authentication failed';
+          showAuthMessage(message, true);
+          return;
+        }
+
+        localStorage.setItem('authToken', data.token);
+        const userData = data.user || { name: name || email.split('@')[0], email };
+        localStorage.setItem('currentUser', JSON.stringify(userData));
+        currentUser = userData;
+        await refreshFavorites();
+
+        showAuthMessage(
+          isRegisterMode
+            ? 'Account created successfully. Welcome to ProConnect!'
+            : 'Signed in successfully. Welcome back!',
+          false
+        );
+
+        setTimeout(async () => {
+          closeAuthModal();
+          updateAuthUI();
+
+          if (userData.role === 'provider') {
+            window.location.href = 'provider-dashboard.html';
+            return;
+          }
+
+          await refreshUserBookings();
+          showPage('user-dashboard');
+        }, 600);
+      } catch (err) {
+        showAuthMessage(err.message || 'Something went wrong. Please try again.', true);
+      }
+    }
+
+    function handleLogout() {
+      if (confirm('Do you want to sign out?')) {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('currentUser');
+        currentUser = null;
+        const dropdown = document.getElementById('profile-dropdown');
+        if (dropdown) dropdown.classList.add('hidden');
+        closeSettingsModal();
+        updateAuthUI();
+      }
+    }
+
+    document.getElementById('settings-form')?.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (!currentUser) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        showNotification('Please sign in again to update your profile.', true);
+        return;
+      }
+
+      const payload = {
+        name: document.getElementById('settings-name').value.trim(),
+        email: document.getElementById('settings-email').value.trim(),
+        phone: document.getElementById('settings-phone').value.trim(),
+      };
+
+      const passwordValue = document.getElementById('settings-password').value;
+      if (passwordValue) payload.password = passwordValue;
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Profile update failed');
+
+        currentUser = data.user;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        updateAuthUI();
+        closeSettingsModal();
+        showNotification('Profile updated successfully');
+      } catch (err) {
+        showNotification(err.message || 'Could not update profile', true);
+      }
+    });
+
+    function openAccountChoice() {
+      const modal = document.getElementById('account-role-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        return;
+      }
+      openAuthModal();
+    }
+
+    async function openVideoModal() {
+      const modal = document.getElementById('video-modal');
+      if (modal) modal.classList.remove('hidden');
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const localVideo = document.getElementById('localVideo');
+        if (localVideo) localVideo.srcObject = localStream;
+        createPeerConnection();
+        if (socket) socket.emit('join-video-room', currentRoom);
+      } catch (err) {
+        alert('Please allow camera & microphone permissions.');
+      }
+    }
+
+    function updateProviderMarker(location) {
+      if (!providerMap || !location || typeof location.lat !== 'number' || typeof location.lng !== 'number') return;
+      const point = { lat: location.lat, lng: location.lng };
+      if (googleMapsReady) {
+        if (!providerMarker) {
+          providerMarker = new google.maps.Marker({ position: point, map: providerMap, title: 'Assigned provider' });
+        } else {
+          providerMarker.setPosition(point);
+        }
+        providerMap.setCenter(point);
+      } else {
+        const leafletPoint = [location.lat, location.lng];
+        if (!providerMarker) {
+          providerMarker = L.marker(leafletPoint).addTo(providerMap).bindPopup('Assigned provider').openPopup();
+        } else {
+          providerMarker.setLatLng(leafletPoint);
+        }
+        providerMap.setView(leafletPoint, 14);
+      }
+      document.getElementById('provider-route-status').textContent = 'Route status: live location';
+      document.getElementById('provider-eta').textContent = 'Live ETA: location received';
+    }
+
+    async function showProviderMap() {
+      const modal = document.getElementById('provider-map-modal');
+      if (modal) modal.classList.remove('hidden');
+      const provider = selectedService ? services.find(item => String(item._id || item.id) === String(selectedService.id)) : services[0];
+      if (!provider || !provider.location || typeof L === 'undefined') return;
+      trackedProviderId = provider._id || provider.id;
+      try {
+        await loadGoogleMaps();
+      } catch (error) {
+        googleMapsReady = false;
+      }
+      if (!providerMap) {
+        if (googleMapsReady) {
+          providerMap = new google.maps.Map(document.getElementById('provider-map'), {
+            center: { lat: provider.location.lat, lng: provider.location.lng }, zoom: 14
+          });
+        } else {
+          providerMap = L.map('provider-map').setView([provider.location.lat, provider.location.lng], 14);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(providerMap);
+        }
+      }
+      updateProviderMarker(provider.location);
+      setTimeout(() => providerMap.invalidateSize && providerMap.invalidateSize(), 100);
+    }
+
+    function closeProviderMap() {
+      const modal = document.getElementById('provider-map-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function placeMaskedCall() {
+      const provider = selectedService ? services.find(item => String(item._id || item.id) === String(selectedService.id)) : null;
+      const customerPhone = currentUser && currentUser.phone;
+      if (!provider || !provider.phone || !customerPhone) return showNotification('Add customer and provider phone numbers before calling.', true);
+      fetch(`${API_BASE}/calls/masked`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerPhone, providerPhone: provider.phone })
+      }).then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Masked call failed');
+        showNotification('Masked call started. Your number stays private.');
+      }).catch(error => showNotification(error.message, true));
+    }
+
+    function showNotification(message, isError = false) {
+      const toast = document.getElementById('notification');
+      const toastText = document.getElementById('notification-text');
+      if (!toast || !toastText) return;
+      toastText.textContent = message;
+      toast.style.background = isError ? '#e11d48' : '#10b981';
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 4000);
+    }
+
+    function closeVideoModal() {
+      const modal = document.getElementById('video-modal');
+      if (modal) modal.classList.add('hidden');
+      if (localStream) localStream.getTracks().forEach(track => track.stop());
+      if (socket) socket.emit('leave-video-room', currentRoom);
+      if (peerConnection) peerConnection.close();
+      peerConnection = null;
+    }
+    function triggerSOSModal() {
+  const modal = document.getElementById('sos-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeSOSModal() {
+  const modal = document.getElementById('sos-modal');
+  if (modal) modal.classList.add('hidden');
+  const statusBox = document.getElementById('sos-status-box');
+  if (statusBox) statusBox.classList.add('hidden');
+}
+
+async function dispatchSOSAlert() {
+  const emergencyType = document.getElementById('sos-type').value;
+  const address = document.getElementById('sos-address').value;
+  const dispatchBtn = document.getElementById('sos-dispatch-btn');
+  const statusBox = document.getElementById('sos-status-box');
+  const statusDesc = document.getElementById('sos-status-desc');
+
+  try {
+    const response = await fetch(`${API_BASE}/sos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emergencyType, address })
+    });
+    if (!response.ok) throw new Error('Emergency service is unavailable');
+  } catch (error) {
+    if (statusDesc) statusDesc.textContent = error.message;
+    return;
+  }
+
+  dispatchBtn.disabled = true;
+  dispatchBtn.innerText = 'Broadcasting Emergency...';
+
+  setTimeout(() => {
+    dispatchBtn.innerText = 'Alert Dispatched';
+    dispatchBtn.className = "w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl text-sm transition";
+    if (statusBox && statusDesc) {
+      statusBox.classList.remove('hidden');
+      statusDesc.textContent = `Priority technician team allocated for "${emergencyType}". Immediate response broadcasted to ${address}.`;
+    }
+
+    const toast = document.getElementById('notification');
+    const toastText = document.getElementById('notification-text');
+    if (toast && toastText) {
+      toastText.textContent = `SOS Alert Sent: Nearby technicians notified.`;
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 5000);
+    }
+  }, 1000);
+}
+
+    async function restoreSession() {
+      const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      const token = localStorage.getItem('authToken');
+
+      if (!token) {
+        currentUser = savedUser;
+        if (currentUser && currentUser.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+        updateAuthUI();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+          if (savedUser && savedUser.role === 'provider') {
+            currentUser = savedUser;
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            window.location.href = 'provider-dashboard.html';
+            return;
+          }
+          throw new Error('Session expired');
+        }
+
+        const data = await res.json();
+        currentUser = data.user;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+        if (currentUser && currentUser.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+      } catch (error) {
+        if (savedUser && savedUser.role === 'provider') {
+          currentUser = savedUser;
+          localStorage.setItem('currentUser', JSON.stringify(currentUser));
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('currentUser');
+        currentUser = null;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await restoreSession();
+
+      if (currentUser && currentUser.role === 'provider') {
+        return;
+      }
+
+      fetchProviders();
+      renderGroupDeals();
+      updateAuthUI();
+      refreshFavorites();
+
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash) {
+        const pageId = hash.replace('-page', '');
+        if (document.getElementById(hash)) {
+          showPage(pageId);
+        } else {
+          showPage('home');
+        }
+      } else {
+        showPage('home');
+      }
+    });
+
+    async function renderGroupDeals() {
+      const container = document.getElementById('group-pools-list');
+      if (!container) return;
+      try {
+        const response = await fetch(`${API_BASE}/group-pools`);
+        const list = await response.json();
+        if (!response.ok) throw new Error(list.error || 'Could not load pools');
+        container.innerHTML = list.map(pool => `
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-slate-900">${pool.service}</h4>
+            <span class="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">Save ${pool.discount}</span>
+          </div>
+          <p class="mt-2 text-xs text-slate-500">${pool.neighborhood}</p>
+          <div class="mt-3 flex items-center justify-between text-xs text-slate-600">
+            <span>${pool.members}/${pool.targetSlots} joined</span>
+            <button onclick="joinGroupPool('${pool.id}')" class="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Join Pool</button>
+          </div>
+        </div>
+      `).join('');
+      } catch (error) {
+        container.innerHTML = `<p class="text-sm text-rose-600">${error.message}</p>`;
+      }
+    }
+
+    async function joinGroupPool(poolId) {
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      try {
+        const response = await fetch(`${API_BASE}/group-pools/${poolId}/join`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: user && user.email })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not join pool');
+        showNotification(`Joined pool: ${data.members}/${data.targetSlots} slots filled.`);
+        renderGroupDeals();
+      } catch (error) {
+        showNotification(error.message, true);
+      }
+    }
+  </script>
+
+  <!-- Live Video Consultation Modal -->
+  <div id="video-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-3xl text-white shadow-2xl mx-4">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></div>
+          <h3 class="font-bold text-lg">Live Technician Triage Room</h3>
+        </div>
+        <button onclick="closeVideoModal()" class="text-slate-400 hover:text-white text-2xl font-bold">&times;</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+        <div class="relative bg-black rounded-2xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800">
+          <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+          <span class="absolute bottom-3 left-3 bg-slate-900/80 px-3 py-1 rounded-full text-xs font-semibold text-slate-300">
+            Remote Specialist
+          </span>
+        </div>
+
+        <div class="relative bg-black rounded-2xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800">
+          <video id="localVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
+          <span class="absolute bottom-3 left-3 bg-slate-900/80 px-3 py-1 rounded-full text-xs font-semibold text-slate-300">
+            You (Local)
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-center gap-4 pt-2">
+        <button onclick="closeVideoModal()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition">
+          End Call
+        </button>
+      </div>
+    </div>
+  </div>
+<!-- Auth (Sign In / Register) Modal -->
+  <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-3xl p-7 w-full max-w-md shadow-2xl mx-4 border border-slate-100">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div>
+          <h3 id="auth-title" class="font-extrabold text-lg text-slate-900">Welcome to ProConnect</h3>
+          <p class="text-xs text-slate-500">Sign in to book and manage verified services</p>
+        </div>
+        <button onclick="closeAuthModal()" class="text-slate-400 hover:text-slate-700 text-2xl font-bold">&times;</button>
+      </div>
+
+      <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4 my-5">
+        <div id="auth-name-field" class="hidden">
+          <label class="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+          <input type="text" id="auth-name" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-indigo-600" placeholder="John Doe">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+          <input type="email" id="auth-email" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-indigo-600" placeholder="you@example.com">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Password</label>
+          <input type="password" id="auth-password" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-indigo-600" placeholder="••••••••">
+        </div>
+
+        <div id="auth-message" class="hidden"></div>
+
+        <button type="submit" id="auth-submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-sm transition">
+          Sign In
+        </button>
+      </form>
+
+      <div class="text-center pt-2 border-t border-slate-100">
+        <p id="auth-toggle-text" class="text-xs text-slate-600">
+          Don't have an account? 
+          <button type="button" onclick="toggleAuthMode()" class="text-indigo-600 font-bold hover:underline">Register</button>
+        </p>
+      </div>
+    </div>
+  </div>
+  <!-- Emergency SOS Dispatch Modal -->
+  <div id="sos-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden">
+    <div class="bg-slate-900 border border-red-500/40 rounded-3xl p-7 w-full max-w-lg shadow-2xl text-white mx-4 relative overflow-hidden">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <span class="flex h-3 w-3 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+          </span>
+          <h3 class="font-extrabold text-lg text-red-400">Emergency Priority Dispatch</h3>
+        </div>
+        <button onclick="closeSOSModal()" class="text-slate-400 hover:text-white text-2xl font-bold">&times;</button>
+      </div>
+
+      <div class="space-y-4 my-5">
+        <p class="text-xs text-slate-300 leading-relaxed">
+          Triggering an SOS immediately routes your emergency alert to the nearest on-duty priority technicians.
+        </p>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Emergency Hazard Type</label>
+          <select id="sos-type" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white focus:outline-none focus:border-red-500">
+            <option value="Electrical Fire / Severe Sparking">⚡ Electrical Fire / Severe Sparking</option>
+            <option value="Major Pipe Burst / Flooding">🌊 Major Pipe Burst / Indoor Flooding</option>
+            <option value="Gas / AC Refrigerant Leak">⚠️ Gas / AC Refrigerant Leak</option>
+            <option value="Lockout / Structural Hazard">🚪 Lockout / Structural Hazard</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Emergency Address</label>
+          <input type="text" id="sos-address" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white focus:outline-none focus:border-red-500" value="No. 14, Main Road, Vellanur, Chennai">
+        </div>
+
+        <button onclick="dispatchSOSAlert()" id="sos-dispatch-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-red-900/50">
+          <i class="fas fa-tower-broadcast animate-pulse"></i> Broadcast Urgent Alert
+        </button>
+      </div>
+
+      <div id="sos-status-box" class="hidden p-4 rounded-2xl bg-red-950/40 border border-red-500/30 text-xs space-y-2">
+        <div class="flex items-center justify-between text-red-400 font-bold">
+          <span><i class="fas fa-satellite-dish mr-1"></i> Specialist En Route</span>
+          <span class="animate-pulse">ETA: ~7 Mins</span>
+        </div>
+        <p class="text-slate-300" id="sos-status-desc">Emergency request received. Local team alerted.</p>
+      </div>
+    </div>
+  </div>
+  <!-- Preferred Helpers Modal -->
+<div id="favorites-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+        <i class="fas fa-heart text-rose-500"></i> Preferred Helpers
+      </h3>
+      <button onclick="closeFavoritesModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+    </div>
+    
+    <div id="favorites-list-container" class="space-y-3 max-h-80 overflow-y-auto">
+      <!-- Helper items populate dynamically -->
+    </div>
+  </div>
+</div>
+<script>
+  function closeFavoritesModal() {
+    const modal = document.getElementById('favorites-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+</script>
+</body>
+</html>

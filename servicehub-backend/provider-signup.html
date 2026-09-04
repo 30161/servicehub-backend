@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProConnect | Provider Sign Up</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    body { background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%); }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-100 via-white to-teal-100 p-6">
+  <div class="w-full max-w-xl rounded-3xl border border-emerald-200 bg-white/95 p-8 shadow-[0_20px_60px_rgba(16,185,129,0.12)] backdrop-blur-sm">
+    <div class="text-center mb-6">
+      <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 shadow-sm">
+        <i class="fas fa-briefcase text-2xl"></i>
+      </div>
+      <h1 id="provider-auth-title" class="mt-4 text-3xl font-extrabold text-slate-900">Provider Sign In</h1>
+      <p id="provider-auth-subtitle" class="mt-2 text-sm text-slate-500">Access your provider dashboard and manage customer jobs.</p>
+    </div>
+
+    <div id="provider-signin-form" class="space-y-4">
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Email</label>
+        <input id="provider-login-email" type="email" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="you@example.com" />
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Password</label>
+        <input id="provider-login-password" type="password" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="Enter your password" />
+      </div>
+
+      <button type="button" onclick="handleProviderSignin()" class="w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700">
+        Sign In as Provider
+      </button>
+    </div>
+
+    <form id="provider-signup-form" class="hidden space-y-4">
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Full Name</label>
+        <input id="provider-name" type="text" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="Your name" />
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Email</label>
+        <input id="provider-email" type="email" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="you@example.com" />
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Password</label>
+        <input id="provider-password" type="password" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="Create a password" />
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Service Type</label>
+        <input id="provider-service" type="text" required class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="e.g. Plumbing, AC Repair" />
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-700">Phone</label>
+        <input id="provider-phone" type="tel" class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-emerald-500 focus:outline-none" placeholder="+91 98765 43210" />
+      </div>
+
+      <button type="submit" class="w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700">
+        Create Provider Account
+      </button>
+    </form>
+
+    <div class="mt-5 text-center text-sm text-slate-600">
+      <button type="button" id="toggle-provider-auth" onclick="toggleProviderAuthMode()" class="font-bold text-emerald-600 hover:underline">Need a new provider account? Sign up</button>
+      <span class="mx-2 text-slate-400">|</span>
+      <a href="index.html" class="font-bold text-indigo-600 hover:underline">Customer home</a>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:5000/api';
+    let providerAuthMode = 'signin';
+
+    function toggleProviderAuthMode() {
+      providerAuthMode = providerAuthMode === 'signin' ? 'signup' : 'signin';
+      const signinForm = document.getElementById('provider-signin-form');
+      const signupForm = document.getElementById('provider-signup-form');
+      const title = document.getElementById('provider-auth-title');
+      const subtitle = document.getElementById('provider-auth-subtitle');
+      const toggleBtn = document.getElementById('toggle-provider-auth');
+
+      if (providerAuthMode === 'signin') {
+        signinForm.classList.remove('hidden');
+        signupForm.classList.add('hidden');
+        title.textContent = 'Provider Sign In';
+        subtitle.textContent = 'Access your provider dashboard and manage customer jobs.';
+        toggleBtn.textContent = 'Need a new provider account? Sign up';
+      } else {
+        signinForm.classList.add('hidden');
+        signupForm.classList.remove('hidden');
+        title.textContent = 'Provider Sign Up';
+        subtitle.textContent = 'Create your business profile and start getting booked.';
+        toggleBtn.textContent = 'Already have a provider account? Sign in';
+      }
+    }
+
+    async function restoreProviderSession() {
+      const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      const token = localStorage.getItem('authToken');
+
+      if (!token) {
+        if (savedUser && savedUser.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+        }
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+          if (savedUser && savedUser.role === 'provider') {
+            window.location.href = 'provider-dashboard.html';
+            return;
+          }
+          throw new Error('Session expired');
+        }
+
+        const data = await res.json();
+        if (data.user && data.user.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+        }
+      } catch (error) {
+        if (savedUser && savedUser.role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('currentUser');
+      }
+    }
+
+    async function handleProviderSignin() {
+      const email = document.getElementById('provider-login-email').value.trim();
+      const password = document.getElementById('provider-login-password').value;
+
+      if (!email || !password) {
+        alert('Please enter your email and password.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, role: 'provider' })
+        });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.message || data.error || 'Provider sign-in failed');
+
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('currentUser', JSON.stringify(data.user));
+        window.location.href = 'provider-dashboard.html';
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    restoreProviderSession();
+
+    document.getElementById('provider-signup-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+
+      const payload = {
+        name: document.getElementById('provider-name').value.trim(),
+        email: document.getElementById('provider-email').value.trim(),
+        password: document.getElementById('provider-password').value,
+        role: 'provider',
+        service: document.getElementById('provider-service').value.trim(),
+        phone: document.getElementById('provider-phone').value.trim()
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 409 && data.error && data.error.toLowerCase().includes('already exists')) {
+            const loginRes = await fetch(`${API_BASE}/auth/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: payload.email, password: payload.password })
+            });
+
+            const loginData = await loginRes.json();
+            if (!loginRes.ok) throw new Error(loginData.message || loginData.error || 'Provider sign-in failed');
+
+            localStorage.setItem('authToken', loginData.token);
+            localStorage.setItem('currentUser', JSON.stringify(loginData.user));
+            window.location.href = 'provider-dashboard.html';
+            return;
+          }
+          throw new Error(data.error || 'Provider registration failed');
+        }
+
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('currentUser', JSON.stringify(data.user));
+        alert('Provider account created successfully!');
+        window.location.href = 'provider-dashboard.html';
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  </script>
+</body>
+</html>

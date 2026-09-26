@@ -85,6 +85,10 @@
           <span>SOS</span>
         </button>
 
+        <button id="role-switch-btn" type="button" class="hidden rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100">
+          Switch to Provider
+        </button>
+
         <div class="relative">
           <button id="nav-auth-btn" onclick="openAccountChoice()" class="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition">
             Sign In
@@ -393,7 +397,7 @@
               <textarea id="ai-symptom-text" rows="3" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-600 focus:outline-none" placeholder="e.g. AC turns on, fan blows air, but compressor fails to start..."></textarea>
             </div>
 
-            <button onclick="runAIDiagnosis()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+            <button onclick="runAIDiagnosis(this)" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex items-center justify-center gap-2">
               <i class="fas fa-bolt"></i> Generate Diagnostic Breakdown
             </button>
           </div>
@@ -422,8 +426,8 @@
             </div>
 
             <div class="flex flex-wrap gap-3">
-              <button onclick="showProviderMap()" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white">Track Provider</button>
-              <button onclick="placeMaskedCall()" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Masked Call</button>
+              <button onclick="showProviderMap();" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white">Track Provider</button>
+              <button onclick="placeMaskedCall(this)" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">Masked Call</button>
             </div>
           </div>
         </div>
@@ -541,7 +545,7 @@
                 <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Escrow release</p>
                 <div class="mt-3 flex gap-2">
                   <input id="customer-otp-input" type="text" maxlength="4" placeholder="Enter 4-digit OTP" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" />
-                  <button type="button" onclick="confirmEscrowRelease()" class="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700">Confirm payment release</button>
+                  <button type="button" onclick="confirmEscrowRelease(this)" class="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700">Confirm payment release</button>
                 </div>
               </div>
             </div>
@@ -550,6 +554,7 @@
               <div class="rounded-2xl border border-slate-200 bg-white p-4">
                 <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Live actions</p>
                 <div class="mt-3 flex flex-wrap gap-2">
+                  <button id="track-provider-btn" type="button" onclick="handleTrackProvider(this)" class="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700">Track Provider</button>
                   <button type="button" onclick="updateActiveJobStatus('COMPLETED')" class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">Completed</button>
                 </div>
               </div>
@@ -695,6 +700,22 @@
       showPage('booking');
     }
 
+    function setButtonState(button, { loading = false, label = '', disabled = false } = {}) {
+      if (!button) return;
+      const originalText = button.dataset.originalText || button.textContent.trim();
+      if (label) button.dataset.originalText = originalText;
+      if (loading) {
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.dataset.loadingText = label || button.dataset.loadingText || originalText;
+        button.innerHTML = `<span class="inline-flex items-center gap-2"><span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>${label || button.dataset.loadingText || 'Loading...'}</span>`;
+        return;
+      }
+      button.disabled = disabled;
+      button.removeAttribute('aria-busy');
+      button.innerHTML = label || originalText;
+    }
+
     function renderHomeServices(list) {
       const container = document.getElementById('home-services-grid');
       if (!container) return;
@@ -715,21 +736,22 @@
         <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <div class="flex justify-between items-start mb-3">
             <h4 class="font-bold text-slate-900">${s.name}</h4>
-            <button type="button" onclick="toggleFavorite('${providerId}')" aria-label="${isFavorite ? 'Remove from' : 'Add to'} preferred helpers" class="text-rose-500 hover:text-rose-700"><i class="fa${isFavorite ? 's' : 'r'} fa-heart"></i></button>
+            <button type="button" onclick="toggleFavorite('${providerId}', this)" aria-label="${isFavorite ? 'Remove from' : 'Add to'} preferred helpers" class="text-rose-500 hover:text-rose-700"><i class="fa${isFavorite ? 's' : 'r'} fa-heart"></i></button>
           </div>
           <p class="text-xs text-slate-500 mb-2">${s.service}</p>
           <div class="flex justify-between items-center text-xs py-2 border-t border-slate-100 mb-3">
             <span class="text-amber-500 font-bold"><i class="fas fa-star mr-1"></i>${s.rating || 5.0}</span>
             <span class="font-bold text-slate-900">$65/hr</span>
           </div>
-          <button onclick="startBooking('${s._id || s.id}', '${s.name}', '${s.service}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition">
+          <button onclick="startBooking('${s._id || s.id}', '${s.name}', '${s.service}', this)" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition">
             Book Visit
           </button>
         </div>
       `;
     }
 
-    function startBooking(id, name, service) {
+    function startBooking(id, name, service, button = null) {
+      if (button) setButtonState(button, { loading: true, label: 'Opening...' });
       document.getElementById('book-target-service').textContent = 'Book ' + service;
       selectedService = { id, name, service, amount: 65 };
       showPage('booking');
@@ -739,29 +761,32 @@
       return JSON.parse(localStorage.getItem('preferredHelperIds') || '[]');
     }
 
-    async function toggleFavorite(providerId) {
+    async function toggleFavorite(providerId, button = null) {
       const id = String(providerId);
       const favorites = getFavoriteIds();
-      const next = favorites.includes(id) ? favorites.filter(item => item !== id) : [...favorites, id];
-      if (currentUser && currentUser._id) {
-        try {
+      const addMode = !favorites.includes(id);
+      if (button) setButtonState(button, { loading: true, label: addMode ? 'Saving...' : 'Updating...' });
+      try {
+        const next = addMode ? [...favorites, id] : favorites.filter(item => item !== id);
+        if (currentUser && currentUser._id) {
           const response = await fetch(`${API_BASE}/users/${currentUser._id}/favorites`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providerId: id, favorite: !favorites.includes(id) })
+            body: JSON.stringify({ providerId: id, favorite: addMode })
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Could not update preferred helpers');
           localStorage.setItem('preferredHelperIds', JSON.stringify(data.favoriteIds));
-        } catch (error) {
-          showNotification(error.message, true);
-          return;
+        } else {
+          localStorage.setItem('preferredHelperIds', JSON.stringify(next));
         }
-      } else {
-        localStorage.setItem('preferredHelperIds', JSON.stringify(next));
+        renderServicesList(services);
+        renderHomeServices(services);
+        showNotification(addMode ? 'Added to preferred helpers.' : 'Removed from preferred helpers.');
+      } catch (error) {
+        showNotification(error.message || 'Could not update your preferred helpers right now.', true);
+      } finally {
+        if (button) setButtonState(button, { loading: false, label: addMode ? 'Saved' : 'Updated', disabled: false });
       }
-      renderServicesList(services);
-      renderHomeServices(services);
-      showNotification(getFavoriteIds().includes(id) ? 'Added to preferred helpers.' : 'Removed from preferred helpers.');
     }
 
     async function refreshFavorites() {
@@ -790,10 +815,14 @@
       if (modal) modal.classList.remove('hidden');
     }
 
-    async function runAIDiagnosis() {
+    async function runAIDiagnosis(button = null) {
       const category = document.getElementById('ai-category').value;
-      const symptoms = document.getElementById('ai-symptom-text').value;
-
+      const symptoms = document.getElementById('ai-symptom-text').value.trim();
+      if (!symptoms) {
+        showNotification('Please describe the symptoms before running the diagnostic.', true);
+        return;
+      }
+      if (button) setButtonState(button, { loading: true, label: 'Diagnosing...' });
       try {
         const res = await fetch(`${API_BASE}/ai/diagnose`, {
           method: 'POST',
@@ -801,14 +830,18 @@
           body: JSON.stringify({ category, symptoms })
         });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'AI diagnosis unavailable');
 
         document.getElementById('ai-result-box').classList.remove('hidden');
         document.getElementById('ai-confidence').textContent = `${data.confidence} Match`;
         document.getElementById('ai-root-cause').textContent = data.probableRootCause;
         document.getElementById('ai-price-est').textContent = data.estimatedCost;
         document.getElementById('ai-precaution').textContent = data.precaution;
+        showNotification('AI diagnosis complete.');
       } catch (err) {
-        alert('Could not connect to AI backend');
+        showNotification(err.message || 'Could not connect to the AI backend.', true);
+      } finally {
+        if (button) setButtonState(button, { loading: false, label: 'Generate Diagnostic Breakdown', disabled: false });
       }
     }
 
@@ -847,12 +880,24 @@
       e.preventDefault();
       const bookingDate = document.getElementById('book-date').value;
       const { minDate, maxDate } = getBookingDateRange();
+      const submitButton = e.target.querySelector('button[type="submit"]');
       if (!bookingDate || bookingDate < minDate || bookingDate > maxDate) {
         showNotification('Please select a booking date between today and 7 days ahead.', true);
         return;
       }
+      if (!selectedService || !selectedService.service) {
+        showNotification('Choose a service before confirming the booking.', true);
+        return;
+      }
+      if (submitButton) setButtonState(submitButton, { loading: true, label: 'Confirming...' });
 
       const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      if (!user || !user.email) {
+        showNotification('Please sign in before placing a booking.', true);
+        if (submitButton) setButtonState(submitButton, { loading: false, label: 'Confirm with Escrow', disabled: false });
+        return;
+      }
+
       const paymentMethod = document.getElementById('payment-method')?.value || 'UPI';
       const payload = {
         customerId: user && user._id,
@@ -873,22 +918,25 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Booking failed');
 
-        if (res.ok) {
-          const booking = await res.json();
-          userBookings.unshift(booking);
-          syncActiveJobFromBooking({
-            ...booking,
-            providerName: selectedService && selectedService.name ? selectedService.name : 'Trusted ProConnect provider',
-            providerPhone: '+91 98765 43210',
-            issueSummary: `${selectedService ? selectedService.service : 'General service'} request raised by the customer.`,
-            aiSummary: 'AI diagnosis recommends a standard service check before technician arrival.'
-          });
-          renderDashboard();
-          showPage('user-dashboard');
-        }
+        const booking = data;
+        userBookings.unshift(booking);
+        syncActiveJobFromBooking({
+          ...booking,
+          providerName: selectedService && selectedService.name ? selectedService.name : 'Trusted ProConnect provider',
+          providerPhone: '+91 98765 43210',
+          issueSummary: `${selectedService ? selectedService.service : 'General service'} request raised by the customer.`,
+          aiSummary: 'AI diagnosis recommends a standard service check before technician arrival.'
+        });
+        renderDashboard();
+        showNotification('Booking confirmed. Your customer dashboard is updated.');
+        showPage('user-dashboard');
       } catch (err) {
-        alert('Booking failed');
+        showNotification(err.message || 'Booking failed. Please try again.', true);
+      } finally {
+        if (submitButton) setButtonState(submitButton, { loading: false, label: 'Confirm with Escrow', disabled: false });
       }
     }
 
@@ -977,7 +1025,7 @@
       renderActiveJob();
     }
 
-    async function confirmEscrowRelease() {
+    async function confirmEscrowRelease(button = null) {
       const job = getActiveJob() || userBookings[0];
       const otp = (document.getElementById('customer-otp-input') || {}).value || '';
 
@@ -990,11 +1038,15 @@
         showNotification('Enter the 4-digit OTP to release the escrow payment.', true);
         return;
       }
+      if (button) setButtonState(button, { loading: true, label: 'Releasing...' });
 
       try {
         const response = await fetch(`${API_BASE}/bookings/${job._id}/verify-otp`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {})
+          },
           body: JSON.stringify({ otp })
         });
         const data = await response.json();
@@ -1012,6 +1064,8 @@
         showNotification('Escrow released and payment approved.');
       } catch (error) {
         showNotification(error.message || 'Escrow release failed', true);
+      } finally {
+        if (button) setButtonState(button, { loading: false, label: 'Confirm payment release', disabled: false });
       }
     }
 
@@ -1046,10 +1100,18 @@
 
       const customerOtpInput = document.getElementById('customer-otp-input');
       const confirmButton = document.querySelector('#active-job-panel button[onclick*="confirmEscrowRelease"]');
+      const trackButton = document.getElementById('track-provider-btn');
       const hasOtpFromProvider = !!(activeJob.otp && activeJob.otp !== '****');
       if (customerOtpInput) {
         customerOtpInput.value = hasOtpFromProvider ? activeJob.otp : '';
         customerOtpInput.disabled = activeJob.escrowStatus === 'RELEASED_TO_PROVIDER' || !hasOtpFromProvider;
+      }
+      if (trackButton) {
+        const canTrack = !!(activeJob._id && activeJob.status && activeJob.status !== 'COMPLETED' && activeJob.status !== 'CANCELLED');
+        trackButton.disabled = !canTrack;
+        trackButton.className = canTrack
+          ? 'rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700'
+          : 'rounded-xl bg-slate-300 px-4 py-2 text-xs font-bold text-slate-500 cursor-not-allowed';
       }
       if (confirmButton) {
         const canRelease = hasOtpFromProvider && activeJob.status === 'COMPLETED' && activeJob.escrowStatus !== 'RELEASED_TO_PROVIDER';
@@ -1057,6 +1119,33 @@
         confirmButton.className = canRelease
           ? 'rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700'
           : 'rounded-xl bg-slate-300 px-3 py-2 text-xs font-bold text-slate-500 cursor-not-allowed';
+      }
+    }
+
+    async function handleTrackProvider(button = null) {
+      const activeJob = normalizeActiveJob(getActiveJob() || userBookings[0]);
+      if (!activeJob || !activeJob._id) {
+        showNotification('No active booking is available to track.', true);
+        return;
+      }
+      if (!getAuthToken()) {
+        showNotification('Please sign in to view the provider route.', true);
+        return;
+      }
+      if (button) setButtonState(button, { loading: true, label: 'Tracking...' });
+      try {
+        bookingTrackingStatus = { enabled: true, bookingId: activeJob._id, locationSharingEnabled: true };
+        if (socket) socket.emit('join-booking-room', activeJob._id);
+        const trackingUrl = getTrackingRouteUrl(activeJob._id, 'location');
+        const startRoute = getTrackingRouteUrl(activeJob._id, 'start-tracking');
+        const stopRoute = getTrackingRouteUrl(activeJob._id, 'stop-tracking');
+        console.info('Tracking route check', { trackingUrl, startRoute, stopRoute, locationSharingEnabled: bookingTrackingStatus.locationSharingEnabled });
+        await showProviderMap();
+        showNotification('Provider tracking is live. Their location updates appear automatically.');
+      } catch (error) {
+        showNotification(error.message || 'Provider tracking could not start right now.', true);
+      } finally {
+        if (button) setButtonState(button, { loading: false, label: 'Track Provider', disabled: false });
       }
     }
 
@@ -1128,8 +1217,24 @@
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     let providerMap = null;
     let providerMarker = null;
+    let customerMarker = null;
     let trackedProviderId = null;
     let googleMapsReady = false;
+    let directionsRenderer = null;
+    let customerLocation = null;
+    let providerLocation = null;
+    let trackingWatchId = null;
+    let bookingTrackingStatus = { enabled: false, bookingId: null, locationSharingEnabled: false };
+
+    const BOOKING_TRACKING_PATH = '/api/bookings/';
+
+    function getTrackingRouteUrl(bookingId, action) {
+      return `${API_BASE}${BOOKING_TRACKING_PATH.slice(5)}${bookingId}/${action}`;
+    }
+
+    function getAuthToken() {
+      return localStorage.getItem('authToken') || '';
+    }
 
     async function loadGoogleMaps() {
       if (window.google && window.google.maps) return true;
@@ -1179,10 +1284,20 @@
       socket.on('provider-location-updated', data => {
         if (String(data.providerId) === String(trackedProviderId)) updateProviderMarker(data.location);
       });
+      socket.on('booking-location-update', data => {
+        const activeJob = normalizeActiveJob(getActiveJob() || userBookings[0]);
+        if (!activeJob || String(data.bookingId) !== String(activeJob._id)) return;
+        if (data.location) {
+          providerLocation = data.location;
+          updateProviderMarker(data.location);
+          document.getElementById('provider-route-status').textContent = `Route status: provider moved ${data.locationUpdatedAt ? new Date(data.locationUpdatedAt).toLocaleTimeString() : 'recently'}`;
+        }
+      });
     }
 
     function updateAuthUI() {
       const navBtn = document.getElementById('nav-auth-btn');
+      const roleSwitchBtn = document.getElementById('role-switch-btn');
       const profileDropdown = document.getElementById('profile-dropdown');
       const profileName = document.getElementById('profile-name');
       const profileEmail = document.getElementById('profile-email');
@@ -1191,6 +1306,9 @@
       if (!navBtn) return;
 
       if (currentUser) {
+        const activeRole = currentUser.activeRole || currentUser.role || 'customer';
+        const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [activeRole];
+        const canSwitch = roles.length > 1;
         navBtn.innerText = `Hi, ${currentUser.name || currentUser.email.split('@')[0]}`;
         navBtn.onclick = () => {
           if (profileDropdown) {
@@ -1199,14 +1317,91 @@
         };
         navBtn.className = "text-xs font-semibold px-4 py-2 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 transition";
 
+        if (roleSwitchBtn) {
+          roleSwitchBtn.classList.toggle('hidden', !canSwitch);
+          roleSwitchBtn.textContent = activeRole === 'provider' ? 'Switch to Customer' : 'Switch to Provider';
+          roleSwitchBtn.onclick = () => switchCurrentRole();
+        }
+
         if (profileName) profileName.textContent = currentUser.name || 'User';
         if (profileEmail) profileEmail.textContent = currentUser.email || 'user@example.com';
-        if (profileRole) profileRole.textContent = currentUser.role || 'customer';
+        if (profileRole) profileRole.textContent = activeRole || 'customer';
       } else {
         navBtn.innerText = 'Sign In';
         navBtn.onclick = openAccountChoice;
         navBtn.className = "text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition";
+        if (roleSwitchBtn) roleSwitchBtn.classList.add('hidden');
         if (profileDropdown) profileDropdown.classList.add('hidden');
+      }
+    }
+
+    function hasMultipleRoles(user) {
+      const roles = Array.isArray(user && user.roles) ? user.roles : [];
+      return roles.length > 1;
+    }
+
+    async function switchCurrentRole() {
+      const token = localStorage.getItem('authToken');
+      if (!token || !currentUser) return;
+      const nextRole = (currentUser.activeRole || currentUser.role || 'customer') === 'provider' ? 'customer' : 'provider';
+      try {
+        const response = await fetch(`${API_BASE}/auth/select-role`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ role: nextRole })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not switch role');
+        currentUser = data.user;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        if (nextRole === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+        window.location.href = 'index.html';
+      } catch (error) {
+        showNotification(error.message || 'Role switch failed', true);
+      }
+    }
+
+    function openRoleSelectionModal(user = currentUser) {
+      const modal = document.getElementById('mode-selection-modal');
+      if (!modal || !user) return;
+      const roles = Array.isArray(user.roles) ? user.roles : [user.activeRole || user.role || 'customer'];
+      const customerBtn = document.getElementById('role-customer-btn');
+      const providerBtn = document.getElementById('role-provider-btn');
+      if (customerBtn) customerBtn.disabled = !roles.includes('customer');
+      if (providerBtn) providerBtn.disabled = !roles.includes('provider');
+      modal.classList.remove('hidden');
+    }
+
+    async function selectUserMode(role) {
+      const token = localStorage.getItem('authToken');
+      if (!token || !currentUser) return;
+      try {
+        const response = await fetch(`${API_BASE}/auth/select-role`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ role })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to select mode');
+        currentUser = data.user;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        document.getElementById('mode-selection-modal')?.classList.add('hidden');
+        if (role === 'provider') {
+          window.location.href = 'provider-dashboard.html';
+          return;
+        }
+        window.location.href = 'index.html';
+      } catch (error) {
+        showNotification(error.message || 'Mode selection failed', true);
       }
     }
 
@@ -1325,10 +1520,11 @@
       const password = document.getElementById('auth-password').value;
       const name = document.getElementById('auth-name') ? document.getElementById('auth-name').value.trim() : '';
 
+      const requestedRole = (selectedAccountRole || 'customer').toLowerCase();
       const endpoint = isRegisterMode ? '/auth/register' : '/auth/login';
       const payload = isRegisterMode
-        ? { name, email, password, role: selectedAccountRole || 'customer' }
-        : { email, password, role: selectedAccountRole || 'customer' };
+        ? { name, email, password, role: requestedRole }
+        : { email, password, role: requestedRole };
 
       try {
         const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -1346,8 +1542,14 @@
 
         localStorage.setItem('authToken', data.token);
         const userData = data.user || { name: name || email.split('@')[0], email };
-        localStorage.setItem('currentUser', JSON.stringify(userData));
-        currentUser = userData;
+        const effectiveUser = {
+          ...userData,
+          activeRole: requestedRole,
+          role: requestedRole,
+          roles: Array.isArray(userData.roles) ? Array.from(new Set([...userData.roles, requestedRole])) : [requestedRole]
+        };
+        localStorage.setItem('currentUser', JSON.stringify(effectiveUser));
+        currentUser = effectiveUser;
         await refreshFavorites();
 
         showAuthMessage(
@@ -1361,13 +1563,20 @@
           closeAuthModal();
           updateAuthUI();
 
-          if (userData.role === 'provider') {
+          const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [currentUser.activeRole || currentUser.role || 'customer'];
+          if (roles.length > 1 && !selectedAccountRole) {
+            openRoleSelectionModal(currentUser);
+            return;
+          }
+
+          if (requestedRole === 'provider') {
             window.location.href = 'provider-dashboard.html';
             return;
           }
 
           await refreshUserBookings();
           showPage('user-dashboard');
+          selectedAccountRole = 'customer';
         }, 600);
       } catch (err) {
         showAuthMessage(err.message || 'Something went wrong. Please try again.', true);
@@ -1452,6 +1661,7 @@
     }
 
     function updateProviderMarker(location) {
+      providerLocation = location;
       if (!providerMap || !location || typeof location.lat !== 'number' || typeof location.lng !== 'number') return;
       const point = { lat: location.lat, lng: location.lng };
       if (googleMapsReady) {
@@ -1472,14 +1682,129 @@
       }
       document.getElementById('provider-route-status').textContent = 'Route status: live location';
       document.getElementById('provider-eta').textContent = 'Live ETA: location received';
+      renderLiveTrackingRoute();
+    }
+
+    function updateCustomerMarker(location) {
+      customerLocation = location;
+      if (!providerMap || !location || typeof location.lat !== 'number' || typeof location.lng !== 'number') return;
+      const point = { lat: location.lat, lng: location.lng };
+      if (googleMapsReady) {
+        if (!customerMarker) {
+          customerMarker = new google.maps.Marker({
+            position: point,
+            map: providerMap,
+            title: 'Your location',
+            icon: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          });
+        } else {
+          customerMarker.setPosition(point);
+        }
+      } else {
+        const leafletPoint = [location.lat, location.lng];
+        if (!customerMarker) {
+          customerMarker = L.marker(leafletPoint, { icon: L.divIcon({ className: 'custom-marker', html: '<div style=\'background:#22c55e;border-radius:50%;width:14px;height:14px;border:2px solid white;box-shadow:0 0 0 6px rgba(34,197,94,0.12)\'></div>' }) }).addTo(providerMap).bindPopup('Your location');
+        } else {
+          customerMarker.setLatLng(leafletPoint);
+        }
+      }
+      renderLiveTrackingRoute();
+    }
+
+    function renderLiveTrackingRoute() {
+      if (!providerMap || !providerLocation || !customerLocation) return;
+      if (googleMapsReady && window.google && window.google.maps) {
+        if (!directionsRenderer) {
+          directionsRenderer = new google.maps.DirectionsRenderer({
+            map: providerMap,
+            suppressMarkers: true,
+            polylineOptions: { strokeColor: '#4f46e5', strokeWeight: 5 }
+          });
+        }
+        const service = new google.maps.DirectionsService();
+        service.route({
+          origin: { lat: customerLocation.lat, lng: customerLocation.lng },
+          destination: { lat: providerLocation.lat, lng: providerLocation.lng },
+          travelMode: google.maps.TravelMode.DRIVING
+        }, (result, status) => {
+          if (status === 'OK' && result && result.routes && result.routes[0]) {
+            directionsRenderer.setDirections(result);
+            const leg = result.routes[0].legs[0];
+            if (leg && leg.duration) {
+              document.getElementById('provider-eta').textContent = `Live ETA: ${leg.duration.text}`;
+            }
+            if (leg && leg.distance) {
+              document.getElementById('provider-route-status').textContent = `Route status: ${leg.distance.text} away`;
+            }
+          }
+        });
+        const providerPoint = { lat: providerLocation.lat, lng: providerLocation.lng };
+        const customerPoint = { lat: customerLocation.lat, lng: customerLocation.lng };
+        if (!providerMarker) {
+          providerMarker = new google.maps.Marker({ position: providerPoint, map: providerMap, title: 'Provider' });
+        } else {
+          providerMarker.setPosition(providerPoint);
+        }
+        if (!customerMarker) {
+          customerMarker = new google.maps.Marker({ position: customerPoint, map: providerMap, title: 'Customer', icon: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' });
+        } else {
+          customerMarker.setPosition(customerPoint);
+        }
+      } else if (typeof L !== 'undefined') {
+        if (providerMap && providerMap.eachLayer) {
+          providerMap.eachLayer(layer => {
+            if (layer instanceof L.Polyline) providerMap.removeLayer(layer);
+          });
+        }
+        const route = L.polyline([
+          [customerLocation.lat, customerLocation.lng],
+          [providerLocation.lat, providerLocation.lng]
+        ], { color: '#4f46e5', weight: 5 }).addTo(providerMap);
+        providerMap.fitBounds([
+          [customerLocation.lat, customerLocation.lng],
+          [providerLocation.lat, providerLocation.lng]
+        ], { padding: [30, 30] });
+        if (!providerMarker) {
+          providerMarker = L.marker([providerLocation.lat, providerLocation.lng]).addTo(providerMap).bindPopup('Provider');
+        } else {
+          providerMarker.setLatLng([providerLocation.lat, providerLocation.lng]);
+        }
+        if (!customerMarker) {
+          customerMarker = L.marker([customerLocation.lat, customerLocation.lng]).addTo(providerMap).bindPopup('Customer');
+        } else {
+          customerMarker.setLatLng([customerLocation.lat, customerLocation.lng]);
+        }
+      }
+    }
+
+    async function requestCustomerLocation() {
+      if (!navigator.geolocation) {
+        showNotification('Geolocation is unavailable on this device.', true);
+        return false;
+      }
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          position => {
+            customerLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
+            updateCustomerMarker(customerLocation);
+            resolve(true);
+          },
+          () => {
+            showNotification('Location permission is required to view the live route.', true);
+            resolve(false);
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        );
+      });
     }
 
     async function showProviderMap() {
       const modal = document.getElementById('provider-map-modal');
       if (modal) modal.classList.remove('hidden');
+      const activeJob = normalizeActiveJob(getActiveJob() || userBookings[0]);
+      const bookingId = activeJob._id;
       const provider = selectedService ? services.find(item => String(item._id || item.id) === String(selectedService.id)) : services[0];
-      if (!provider || !provider.location || typeof L === 'undefined') return;
-      trackedProviderId = provider._id || provider.id;
+      trackedProviderId = provider ? (provider._id || provider.id) : null;
       try {
         await loadGoogleMaps();
       } catch (error) {
@@ -1488,14 +1813,40 @@
       if (!providerMap) {
         if (googleMapsReady) {
           providerMap = new google.maps.Map(document.getElementById('provider-map'), {
-            center: { lat: provider.location.lat, lng: provider.location.lng }, zoom: 14
+            center: { lat: 13.0827, lng: 80.2707 }, zoom: 14
           });
         } else {
-          providerMap = L.map('provider-map').setView([provider.location.lat, provider.location.lng], 14);
+          providerMap = L.map('provider-map').setView([13.0827, 80.2707], 14);
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(providerMap);
         }
       }
-      updateProviderMarker(provider.location);
+
+      if (bookingId) {
+        socket && socket.emit('join-booking-room', bookingId);
+        const token = getAuthToken();
+        try {
+          const response = await fetch(`${API_BASE}/bookings/${bookingId}/location`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          const data = await response.json();
+          if (response.ok && data && data.location) {
+            providerLocation = data.location;
+            updateProviderMarker(providerLocation);
+          }
+        } catch (error) {
+          console.warn('Unable to fetch provider tracking location:', error);
+        }
+      }
+
+      if (provider && provider.location) {
+        providerLocation = provider.location;
+        updateProviderMarker(provider.location);
+      }
+
+      const customerAccepted = await requestCustomerLocation();
+      if (customerAccepted) {
+        updateCustomerMarker(customerLocation);
+      }
       setTimeout(() => providerMap.invalidateSize && providerMap.invalidateSize(), 100);
     }
 
@@ -1504,10 +1855,14 @@
       if (modal) modal.classList.add('hidden');
     }
 
-    function placeMaskedCall() {
+    function placeMaskedCall(button = null) {
       const provider = selectedService ? services.find(item => String(item._id || item.id) === String(selectedService.id)) : null;
       const customerPhone = currentUser && currentUser.phone;
-      if (!provider || !provider.phone || !customerPhone) return showNotification('Add customer and provider phone numbers before calling.', true);
+      if (!provider || !provider.phone || !customerPhone) {
+        showNotification('Add customer and provider phone numbers before calling.', true);
+        return;
+      }
+      if (button) setButtonState(button, { loading: true, label: 'Calling...' });
       fetch(`${API_BASE}/calls/masked`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerPhone, providerPhone: provider.phone })
@@ -1515,7 +1870,9 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Masked call failed');
         showNotification('Masked call started. Your number stays private.');
-      }).catch(error => showNotification(error.message, true));
+      }).catch(error => showNotification(error.message, true)).finally(() => {
+        if (button) setButtonState(button, { loading: false, label: 'Masked Call', disabled: false });
+      });
     }
 
     function showNotification(message, isError = false) {
@@ -1526,6 +1883,59 @@
       toast.style.background = isError ? '#e11d48' : '#10b981';
       toast.classList.add('active');
       setTimeout(() => toast.classList.remove('active'), 4000);
+    }
+
+    async function renderGroupDeals() {
+      const container = document.getElementById('group-pools-list');
+      const refreshButton = document.querySelector('#groupbuy-page button[onclick*="renderGroupDeals"]');
+      if (refreshButton) setButtonState(refreshButton, { loading: true, label: 'Refreshing...' });
+      if (!container) return;
+      try {
+        const response = await fetch(`${API_BASE}/group-pools`);
+        const list = await response.json();
+        if (!response.ok) throw new Error(list.error || 'Could not load pools');
+        container.innerHTML = list.map(pool => `
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-slate-900">${pool.service}</h4>
+            <span class="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">Save ${pool.discount}</span>
+          </div>
+          <p class="mt-2 text-xs text-slate-500">${pool.neighborhood}</p>
+          <div class="mt-3 flex items-center justify-between text-xs text-slate-600">
+            <span>${pool.members}/${pool.targetSlots} joined</span>
+            <button onclick="joinGroupPool('${pool.id}', this)" class="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Join Pool</button>
+          </div>
+        </div>
+      `).join('');
+      } catch (error) {
+        container.innerHTML = `<p class="text-sm text-rose-600">${error.message}</p>`;
+        showNotification(error.message || 'Could not refresh group pools.', true);
+      } finally {
+        if (refreshButton) setButtonState(refreshButton, { loading: false, label: 'Refresh Pools', disabled: false });
+      }
+    }
+
+    async function joinGroupPool(poolId, button = null) {
+      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      if (!user || !user.email) {
+        showNotification('Please sign in before joining a group pool.', true);
+        return;
+      }
+      if (button) setButtonState(button, { loading: true, label: 'Joining...' });
+      try {
+        const response = await fetch(`${API_BASE}/group-pools/${poolId}/join`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: user.email })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not join pool');
+        showNotification(`Joined pool: ${data.members}/${data.targetSlots} slots filled.`);
+        await renderGroupDeals();
+      } catch (error) {
+        showNotification(error.message || 'Group pool join failed.', true);
+      } finally {
+        if (button) setButtonState(button, { loading: false, label: 'Join Pool', disabled: false });
+      }
     }
 
     function closeVideoModal() {
@@ -1548,12 +1958,23 @@ function closeSOSModal() {
   if (statusBox) statusBox.classList.add('hidden');
 }
 
-async function dispatchSOSAlert() {
+async function dispatchSOSAlert(button = null) {
   const emergencyType = document.getElementById('sos-type').value;
   const address = document.getElementById('sos-address').value;
   const dispatchBtn = document.getElementById('sos-dispatch-btn');
   const statusBox = document.getElementById('sos-status-box');
   const statusDesc = document.getElementById('sos-status-desc');
+
+  if (!address || !address.trim()) {
+    showNotification('Please add the emergency address before dispatching.', true);
+    return;
+  }
+
+  if (button) setButtonState(button, { loading: true, label: 'Broadcasting...' });
+  else if (dispatchBtn) {
+    dispatchBtn.disabled = true;
+    dispatchBtn.innerText = 'Broadcasting Emergency...';
+  }
 
   try {
     const response = await fetch(`${API_BASE}/sos`, {
@@ -1561,31 +1982,33 @@ async function dispatchSOSAlert() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emergencyType, address })
     });
-    if (!response.ok) throw new Error('Emergency service is unavailable');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Emergency service is unavailable');
+
+    setTimeout(() => {
+      if (dispatchBtn) {
+        dispatchBtn.innerText = 'Alert Dispatched';
+        dispatchBtn.className = "w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl text-sm transition";
+      }
+      if (statusBox && statusDesc) {
+        statusBox.classList.remove('hidden');
+        statusDesc.textContent = `Priority technician team allocated for "${emergencyType}". Immediate response broadcasted to ${address}.`;
+      }
+
+      const toast = document.getElementById('notification');
+      const toastText = document.getElementById('notification-text');
+      if (toast && toastText) {
+        toastText.textContent = `SOS Alert Sent: Nearby technicians notified.`;
+        toast.classList.add('active');
+        setTimeout(() => toast.classList.remove('active'), 5000);
+      }
+    }, 1000);
   } catch (error) {
-    if (statusDesc) statusDesc.textContent = error.message;
-    return;
+    if (statusDesc) statusDesc.textContent = error.message || 'Emergency service is unavailable';
+    showNotification(error.message || 'Emergency dispatch could not be completed.', true);
+  } finally {
+    if (button) setButtonState(button, { loading: false, label: 'Broadcast Urgent Alert', disabled: false });
   }
-
-  dispatchBtn.disabled = true;
-  dispatchBtn.innerText = 'Broadcasting Emergency...';
-
-  setTimeout(() => {
-    dispatchBtn.innerText = 'Alert Dispatched';
-    dispatchBtn.className = "w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl text-sm transition";
-    if (statusBox && statusDesc) {
-      statusBox.classList.remove('hidden');
-      statusDesc.textContent = `Priority technician team allocated for "${emergencyType}". Immediate response broadcasted to ${address}.`;
-    }
-
-    const toast = document.getElementById('notification');
-    const toastText = document.getElementById('notification-text');
-    if (toast && toastText) {
-      toastText.textContent = `SOS Alert Sent: Nearby technicians notified.`;
-      toast.classList.add('active');
-      setTimeout(() => toast.classList.remove('active'), 5000);
-    }
-  }, 1000);
 }
 
     async function restoreSession() {
@@ -1594,7 +2017,11 @@ async function dispatchSOSAlert() {
 
       if (!token) {
         currentUser = savedUser;
-        if (currentUser && currentUser.role === 'provider') {
+        if (currentUser && hasMultipleRoles(currentUser)) {
+          openRoleSelectionModal(currentUser);
+          return;
+        }
+        if (currentUser && (currentUser.activeRole === 'provider' || currentUser.role === 'provider')) {
           window.location.href = 'provider-dashboard.html';
           return;
         }
@@ -1608,10 +2035,10 @@ async function dispatchSOSAlert() {
         });
 
         if (!res.ok) {
-          if (savedUser && savedUser.role === 'provider') {
+          if (savedUser && hasMultipleRoles(savedUser)) {
             currentUser = savedUser;
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            window.location.href = 'provider-dashboard.html';
+            openRoleSelectionModal(currentUser);
             return;
           }
           throw new Error('Session expired');
@@ -1621,15 +2048,20 @@ async function dispatchSOSAlert() {
         currentUser = data.user;
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
-        if (currentUser && currentUser.role === 'provider') {
+        if (currentUser && hasMultipleRoles(currentUser)) {
+          openRoleSelectionModal(currentUser);
+          return;
+        }
+
+        if (currentUser && (currentUser.activeRole === 'provider' || currentUser.role === 'provider')) {
           window.location.href = 'provider-dashboard.html';
           return;
         }
       } catch (error) {
-        if (savedUser && savedUser.role === 'provider') {
+        if (savedUser && hasMultipleRoles(savedUser)) {
           currentUser = savedUser;
           localStorage.setItem('currentUser', JSON.stringify(currentUser));
-          window.location.href = 'provider-dashboard.html';
+          openRoleSelectionModal(currentUser);
           return;
         }
 
@@ -1664,46 +2096,6 @@ async function dispatchSOSAlert() {
       }
     });
 
-    async function renderGroupDeals() {
-      const container = document.getElementById('group-pools-list');
-      if (!container) return;
-      try {
-        const response = await fetch(`${API_BASE}/group-pools`);
-        const list = await response.json();
-        if (!response.ok) throw new Error(list.error || 'Could not load pools');
-        container.innerHTML = list.map(pool => `
-        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div class="flex items-center justify-between">
-            <h4 class="font-bold text-slate-900">${pool.service}</h4>
-            <span class="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">Save ${pool.discount}</span>
-          </div>
-          <p class="mt-2 text-xs text-slate-500">${pool.neighborhood}</p>
-          <div class="mt-3 flex items-center justify-between text-xs text-slate-600">
-            <span>${pool.members}/${pool.targetSlots} joined</span>
-            <button onclick="joinGroupPool('${pool.id}')" class="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Join Pool</button>
-          </div>
-        </div>
-      `).join('');
-      } catch (error) {
-        container.innerHTML = `<p class="text-sm text-rose-600">${error.message}</p>`;
-      }
-    }
-
-    async function joinGroupPool(poolId) {
-      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
-      try {
-        const response = await fetch(`${API_BASE}/group-pools/${poolId}/join`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: user && user.email })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Could not join pool');
-        showNotification(`Joined pool: ${data.members}/${data.targetSlots} slots filled.`);
-        renderGroupDeals();
-      } catch (error) {
-        showNotification(error.message, true);
-      }
-    }
   </script>
 
   <!-- Live Video Consultation Modal -->
@@ -1816,7 +2208,7 @@ async function dispatchSOSAlert() {
           <input type="text" id="sos-address" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white focus:outline-none focus:border-red-500" value="No. 14, Main Road, Vellanur, Chennai">
         </div>
 
-        <button onclick="dispatchSOSAlert()" id="sos-dispatch-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-red-900/50">
+        <button onclick="dispatchSOSAlert(this)" id="sos-dispatch-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-red-900/50">
           <i class="fas fa-tower-broadcast animate-pulse"></i> Broadcast Urgent Alert
         </button>
       </div>
@@ -1842,6 +2234,36 @@ async function dispatchSOSAlert() {
     
     <div id="favorites-list-container" class="space-y-3 max-h-80 overflow-y-auto">
       <!-- Helper items populate dynamically -->
+    </div>
+  </div>
+</div>
+
+<div id="mode-selection-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="w-full max-w-xl rounded-3xl bg-white p-7 shadow-2xl">
+    <div class="mb-5 text-center">
+      <p class="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Welcome back</p>
+      <h3 class="mt-2 text-3xl font-extrabold text-slate-900">Choose your mode</h3>
+      <p class="mt-2 text-sm text-slate-500">Your account supports both customer and provider access.</p>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2">
+      <button id="role-customer-btn" type="button" onclick="selectUserMode('customer')" class="rounded-3xl border border-indigo-200 bg-indigo-50 p-5 text-left transition hover:bg-indigo-100">
+        <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
+          <i class="fas fa-user text-xl"></i>
+        </div>
+        <p class="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Customer</p>
+        <h4 class="mt-2 text-xl font-extrabold text-slate-900">Book Services</h4>
+        <p class="mt-2 text-sm text-slate-600">Search providers, book jobs, manage bookings, and track service progress.</p>
+      </button>
+
+      <button id="role-provider-btn" type="button" onclick="selectUserMode('provider')" class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-left transition hover:bg-emerald-100">
+        <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm">
+          <i class="fas fa-briefcase text-xl"></i>
+        </div>
+        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Service Provider</p>
+        <h4 class="mt-2 text-xl font-extrabold text-slate-900">Manage Jobs</h4>
+        <p class="mt-2 text-sm text-slate-600">Receive bookings, accept requests, share your route, and complete work.</p>
+      </button>
     </div>
   </div>
 </div>

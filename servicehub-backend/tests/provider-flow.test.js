@@ -39,6 +39,10 @@ assert.ok(indexHtml.includes("Confirm payment release"), 'Customer should be abl
 assert.ok(indexHtml.includes("/verify-otp"), 'Booking verification route should be invoked when escrow is confirmed');
 assert.ok(providerDashboardHtml.includes("proconnectActiveJob"), 'Provider dashboard should read the shared active booking state');
 assert.ok(providerDashboardHtml.includes("OTP release"), 'Provider console should show the OTP release completion flow');
+assert.ok(indexHtml.includes("navigator.geolocation"), 'User and provider tracking must request browser geolocation permission');
+assert.ok(indexHtml.includes("/api/bookings/"), 'Tracking buttons should call the booking-based tracking routes');
+assert.ok(indexHtml.includes("locationSharingEnabled"), 'Booking tracking UI must expose the sharing state');
+assert.ok(providerDashboardHtml.includes("Start Location Sharing"), 'Provider dashboard should provide a start tracking button');
 assert.ok(fs.existsSync(providerDashboardPath), 'Provider dashboard page should exist');
 
 console.log('Provider flow regression test passed');

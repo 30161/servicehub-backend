@@ -4,6 +4,8 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  roles: [{ type: String, enum: ['customer', 'provider', 'admin'], default: ['customer'] }],
+  activeRole: { type: String, enum: ['customer', 'provider', 'admin'], default: 'customer' },
   role: { type: String, enum: ['customer', 'provider', 'admin'], default: 'customer' },
   phone: String,
   service: String,
@@ -17,6 +19,27 @@ const userSchema = new mongoose.Schema({
     govtId: { type: Boolean, default: true },
     criminalCheck: { type: Boolean, default: true },
     certified: { type: Boolean, default: true }
+  },
+  customerProfile: {
+    preferences: [{ type: String }],
+    savedAddresses: [{ type: String }],
+    bookingHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
+    reviewsGiven: [{ type: String }],
+    favoriteProviders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  },
+  providerProfile: {
+    profilePhoto: { type: String, default: '' },
+    servicesOffered: [{ type: String }],
+    serviceCategory: { type: String, default: '' },
+    description: { type: String, default: '' },
+    skills: [{ type: String }],
+    experience: { type: String, default: '' },
+    pricing: { type: String, default: '' },
+    availability: { type: String, default: '' },
+    serviceLocation: { type: String, default: '' },
+    ratings: { type: Number, default: 5.0 },
+    verificationStatus: { type: String, default: 'pending' },
+    bankDetails: { type: mongoose.Schema.Types.Mixed, default: {} }
   }
 }, { timestamps: true });
 
@@ -36,7 +59,13 @@ const bookingSchema = new mongoose.Schema({
     enum: ['HELD_IN_ESCROW', 'RELEASED_TO_PROVIDER', 'REFUNDED', 'DISPUTED'], 
     default: 'HELD_IN_ESCROW' 
   },
-  status: { type: String, default: 'CONFIRMED' }
+  status: { type: String, default: 'CONFIRMED' },
+  latitude: { type: Number },
+  longitude: { type: Number },
+  locationUpdatedAt: { type: Date, default: null },
+  locationSharingEnabled: { type: Boolean, default: false },
+  trackingStartedAt: { type: Date, default: null },
+  trackingStoppedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 const groupPoolSchema = new mongoose.Schema({

@@ -21,10 +21,75 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 const JWT_SECRET = process.env.JWT_SECRET || 'servicehub-dev-secret';
 
+const normalizeRoles = roles => {
+  const entries = Array.isArray(roles) ? roles : [roles].filter(Boolean);
+  const cleaned = entries.map(role => String(role).toLowerCase()).filter(Boolean);
+  return [...new Set(cleaned)];
+};
+
+const normalizeUserRoleState = user => {
+  const baseRoles = normalizeRoles(user.roles && user.roles.length ? user.roles : user.role ? [user.role] : ['customer']);
+  const roles = baseRoles.length ? baseRoles : ['customer'];
+  const activeRole = roles.includes(user.activeRole) ? user.activeRole : roles[0];
+  user.roles = roles;
+  user.activeRole = activeRole;
+  user.role = activeRole;
+  return user;
+};
+
+const isValidCoordinate = (lat, lng) => {
+  const validLat = Number.isFinite(lat) && lat >= -90 && lat <= 90;
+  const validLng = Number.isFinite(lng) && lng >= -180 && lng <= 180;
+  return validLat && validLng;
+};
+
+const getAuthToken = req => {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+  return authHeader.substring(7);
+};
+
+const requireAuth = (req, res, next) => {
+  try {
+    const token = getAuthToken(req);
+    if (!token) return res.status(401).json({ error: 'Authentication required.' });
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = { _id: decoded.id, role: decoded.role || 'customer' };
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token.' });
+  }
+};
+
+const requireActiveBookingAccess = async (req, res, next) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId || req.params.id);
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    const isProvider = String(req.user._id) === String(booking.providerId);
+    const isCustomer = String(req.user._id) === String(booking.customerId);
+    if (!isProvider && !isCustomer) return res.status(403).json({ error: 'You are not authorized to access this booking.' });
+    if (['COMPLETED', 'CANCELLED', 'REJECTED', 'FAILED'].includes(booking.status)) {
+      return res.status(410).json({ error: 'This booking is no longer active.' });
+    }
+    req.booking = booking;
+    next();
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+};
+
 io.on('connection', socket => {
   socket.on('join-video-room', roomId => {
     socket.join(roomId);
     socket.to(roomId).emit('video-peer-joined');
+  });
+  socket.on('join-booking-room', bookingId => {
+    if (!bookingId) return;
+    socket.join(`booking:${bookingId}`);
+  });
+  socket.on('leave-booking-room', bookingId => {
+    if (!bookingId) return;
+    socket.leave(`booking:${bookingId}`);
   });
   socket.on('video-offer', ({ roomId, offer }) => socket.to(roomId).emit('video-offer', offer));
   socket.on('video-answer', ({ roomId, answer }) => socket.to(roomId).emit('video-answer', answer));
@@ -32,12 +97,16 @@ io.on('connection', socket => {
   socket.on('leave-video-room', roomId => socket.leave(roomId));
 });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 app.use(express.static(__dirname));
 app.get('/api/config', (req, res) => {
   res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, service: 'ProConnect API', timestamp: new Date().toISOString() });
 });
 mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub')
   .then(() => console.log('✅ MongoDB connected successfully'))
@@ -48,18 +117,46 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub'
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, role, service, phone } = req.body;
+    const { name, email, password, role, roles, service, phone, activeRole } = req.body;
     const normalizedEmail = String(email || '').trim().toLowerCase();
 
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
 
+    const incomingRoles = normalizeRoles(roles && roles.length ? roles : [role || 'customer']);
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-      return res.status(409).json({
-        error: 'An account with this email already exists. Please sign in instead.'
-      });
+      existingUser.roles = normalizeRoles([...existingUser.roles, ...incomingRoles]);
+      existingUser.role = existingUser.activeRole || existingUser.roles[0] || 'customer';
+      existingUser.activeRole = existingUser.activeRole || existingUser.roles[0] || 'customer';
+      if (!existingUser.customerProfile) existingUser.customerProfile = { preferences: [], savedAddresses: [], bookingHistory: [], reviewsGiven: [], favoriteProviders: [] };
+      if (incomingRoles.includes('provider') && !existingUser.providerProfile) {
+        existingUser.providerProfile = {
+          profilePhoto: '',
+          servicesOffered: service ? [service] : [],
+          serviceCategory: service || '',
+          description: '',
+          skills: [],
+          experience: '',
+          pricing: '',
+          availability: '',
+          serviceLocation: '',
+          ratings: 5.0,
+          verificationStatus: 'pending',
+          bankDetails: {}
+        };
+      }
+      if (incomingRoles.includes('customer') && !existingUser.customerProfile) {
+        existingUser.customerProfile = { preferences: [], savedAddresses: [], bookingHistory: [], reviewsGiven: [], favoriteProviders: [] };
+      }
+      if (activeRole && existingUser.roles.includes(activeRole)) {
+        existingUser.activeRole = activeRole;
+        existingUser.role = activeRole;
+      }
+      await existingUser.save();
+      const token = jwt.sign({ id: existingUser._id, role: existingUser.activeRole }, JWT_SECRET);
+      return res.status(200).json({ token, user: existingUser });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -67,12 +164,48 @@ app.post('/api/auth/register', async (req, res) => {
       name,
       email: normalizedEmail,
       password: hashedPassword,
-      role: role || 'customer',
+      roles: normalizeRoles(incomingRoles),
+      activeRole: activeRole || normalizeRoles(incomingRoles)[0] || 'customer',
+      role: activeRole || normalizeRoles(incomingRoles)[0] || 'customer',
       service,
-      phone
+      phone,
+      customerProfile: {
+        preferences: [],
+        savedAddresses: [],
+        bookingHistory: [],
+        reviewsGiven: [],
+        favoriteProviders: []
+      },
+      providerProfile: incomingRoles.includes('provider') ? {
+        profilePhoto: '',
+        servicesOffered: service ? [service] : [],
+        serviceCategory: service || '',
+        description: '',
+        skills: [],
+        experience: '',
+        pricing: '',
+        availability: '',
+        serviceLocation: '',
+        ratings: 5.0,
+        verificationStatus: 'pending',
+        bankDetails: {}
+      } : {
+        profilePhoto: '',
+        servicesOffered: [],
+        serviceCategory: '',
+        description: '',
+        skills: [],
+        experience: '',
+        pricing: '',
+        availability: '',
+        serviceLocation: '',
+        ratings: 5.0,
+        verificationStatus: 'pending',
+        bankDetails: {}
+      }
     });
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET);
+    const token = jwt.sign({ id: user._id, role: user.activeRole }, JWT_SECRET);
     res.status(201).json({ token, user });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -87,10 +220,70 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET);
+    normalizeUserRoleState(user);
+    const token = jwt.sign({ id: user._id, role: user.activeRole }, JWT_SECRET);
+    await user.save();
     res.json({ token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/select-role', requireAuth, async (req, res) => {
+  try {
+    const { role } = req.body || {};
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    const roles = normalizeUserRoleState(user).roles;
+    if (!role || !roles.includes(String(role).toLowerCase())) {
+      return res.status(400).json({ error: 'Selected role is not available for this account.' });
+    }
+    user.activeRole = String(role).toLowerCase();
+    user.role = String(role).toLowerCase();
+    await user.save();
+    res.json({ user });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/upgrade-role', requireAuth, async (req, res) => {
+  try {
+    const { role } = req.body || {};
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const nextRole = String(role || 'provider').toLowerCase();
+    if (!['customer', 'provider'].includes(nextRole)) {
+      return res.status(400).json({ error: 'Unsupported role.' });
+    }
+
+    user.roles = normalizeRoles([...user.roles, nextRole]);
+    if (nextRole === 'provider' && !user.providerProfile) {
+      user.providerProfile = {
+        profilePhoto: '',
+        servicesOffered: [],
+        serviceCategory: user.service || '',
+        description: '',
+        skills: [],
+        experience: '',
+        pricing: '',
+        availability: '',
+        serviceLocation: '',
+        ratings: 5.0,
+        verificationStatus: 'pending',
+        bankDetails: {}
+      };
+    }
+    if (nextRole === 'customer' && !user.customerProfile) {
+      user.customerProfile = { preferences: [], savedAddresses: [], bookingHistory: [], reviewsGiven: [], favoriteProviders: [] };
+    }
+    user.activeRole = nextRole;
+    user.role = nextRole;
+    await user.save();
+    res.json({ user });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -173,9 +366,12 @@ app.put('/api/users/:id/favorites', async (req, res) => {
 app.post('/api/providers/:id/location', async (req, res) => {
   try {
     const { lat, lng } = req.body;
+    if (!isValidCoordinate(Number(lat), Number(lng))) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+    }
     const provider = await User.findByIdAndUpdate(
       req.params.id,
-      { location: { lat, lng } },
+      { location: { lat: Number(lat), lng: Number(lng) } },
       { returnDocument: 'after' }
     ).select('-password');
 
@@ -188,6 +384,146 @@ app.post('/api/providers/:id/location', async (req, res) => {
       location: provider.location
     });
     res.json({ success: true, provider });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/bookings/:bookingId/start-tracking', requireAuth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (String(req.user._id) !== String(booking.providerId)) {
+      return res.status(403).json({ error: 'Only the assigned provider can start tracking for this booking.' });
+    }
+    if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(booking.status)) {
+      return res.status(409).json({ error: 'This booking is no longer active.' });
+    }
+
+    booking.locationSharingEnabled = true;
+    booking.trackingStartedAt = new Date();
+    booking.trackingStoppedAt = null;
+    booking.status = booking.status === 'CONFIRMED' ? 'PROVIDER_EN_ROUTE' : booking.status;
+    await booking.save();
+
+    io.to(`booking:${booking._id}`).emit('booking-location-status', {
+      bookingId: booking._id,
+      locationSharingEnabled: true,
+      status: booking.status,
+      message: 'Location sharing enabled.'
+    });
+
+    res.json({ success: true, booking });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/bookings/:bookingId/stop-tracking', requireAuth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    const isProvider = String(req.user._id) === String(booking.providerId);
+    const isCustomer = String(req.user._id) === String(booking.customerId);
+    if (!isProvider && !isCustomer) {
+      return res.status(403).json({ error: 'You are not authorized to stop tracking for this booking.' });
+    }
+
+    booking.locationSharingEnabled = false;
+    booking.trackingStoppedAt = new Date();
+    await booking.save();
+
+    io.to(`booking:${booking._id}`).emit('booking-location-status', {
+      bookingId: booking._id,
+      locationSharingEnabled: false,
+      status: booking.status,
+      message: 'Location sharing stopped.'
+    });
+
+    res.json({ success: true, booking });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/bookings/:bookingId/location', requireAuth, async (req, res) => {
+  try {
+    const { lat, lng } = req.body || {};
+    const booking = await Booking.findById(req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (String(req.user._id) !== String(booking.providerId)) {
+      return res.status(403).json({ error: 'Only the assigned provider can send a live location for this booking.' });
+    }
+    if (!isValidCoordinate(Number(lat), Number(lng))) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+    }
+    if (booking.status === 'CANCELLED' || booking.status === 'COMPLETED') {
+      return res.status(409).json({ error: 'Tracking is not available after the booking ends.' });
+    }
+
+    booking.latitude = Number(lat);
+    booking.longitude = Number(lng);
+    booking.locationUpdatedAt = new Date();
+    booking.locationSharingEnabled = true;
+    if (!booking.trackingStartedAt) booking.trackingStartedAt = booking.locationUpdatedAt;
+    await booking.save();
+
+    const payload = {
+      bookingId: booking._id,
+      providerId: booking.providerId,
+      customerId: booking.customerId,
+      location: { lat: booking.latitude, lng: booking.longitude },
+      locationUpdatedAt: booking.locationUpdatedAt,
+      locationSharingEnabled: booking.locationSharingEnabled,
+      status: booking.status,
+      service: booking.service
+    };
+
+    io.to(`booking:${booking._id}`).emit('booking-location-update', payload);
+    io.emit('provider-location-updated', {
+      providerId: booking.providerId,
+      bookingId: booking._id,
+      location: { lat: booking.latitude, lng: booking.longitude }
+    });
+
+    res.json({ success: true, booking: payload });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/bookings/:bookingId/location', requireAuth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    const isProvider = String(req.user._id) === String(booking.providerId);
+    const isCustomer = String(req.user._id) === String(booking.customerId);
+    if (!isProvider && !isCustomer) {
+      return res.status(403).json({ error: 'You are not authorized to view this location.' });
+    }
+
+    if (!booking.locationSharingEnabled || !booking.latitude || !booking.longitude) {
+      return res.status(200).json({
+        bookingId: booking._id,
+        location: null,
+        locationSharingEnabled: false,
+        status: booking.status,
+        locationUpdatedAt: booking.locationUpdatedAt,
+        message: 'Provider has not started sharing location yet.'
+      });
+    }
+
+    res.json({
+      bookingId: booking._id,
+      providerId: booking.providerId,
+      customerId: booking.customerId,
+      location: { lat: booking.latitude, lng: booking.longitude },
+      locationUpdatedAt: booking.locationUpdatedAt,
+      locationSharingEnabled: booking.locationSharingEnabled,
+      status: booking.status,
+      service: booking.service,
+      message: 'Live provider location available.'
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -277,23 +613,33 @@ app.get('/api/bookings', async (req, res) => {
   }
 });
 
-app.post('/api/bookings/:id/verify-otp', async (req, res) => {
-  const { otp } = req.body;
-  const booking = await Booking.findById(req.params.id);
+app.post('/api/bookings/:id/verify-otp', requireAuth, async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const booking = await Booking.findById(req.params.id);
 
-  if (!booking) {
-    return res.status(404).json({ error: 'Booking not found' });
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const isProvider = String(req.user._id) === String(booking.providerId);
+    const isCustomer = String(req.user._id) === String(booking.customerId);
+    if (!isProvider && !isCustomer) {
+      return res.status(403).json({ error: 'You are not authorized to verify this booking OTP.' });
+    }
+
+    if (String(booking.otp) !== String(otp)) {
+      return res.status(400).json({ valid: false, message: 'Invalid OTP. Please confirm the one shared by the customer.' });
+    }
+
+    booking.escrowStatus = 'RELEASED_TO_PROVIDER';
+    booking.status = 'COMPLETED';
+    await booking.save();
+
+    res.json({ valid: true, booking });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
-
-  if (String(booking.otp) !== String(otp)) {
-    return res.status(400).json({ valid: false, message: 'Invalid OTP. Please confirm the one shared by the customer.' });
-  }
-
-  booking.escrowStatus = 'RELEASED_TO_PROVIDER';
-  booking.status = 'COMPLETED';
-  await booking.save();
-
-  res.json({ valid: true, booking });
 });
 
 app.get('/api/group-pools', async (req, res) => {
@@ -401,4 +747,9 @@ app.post('/api/sos', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+if (require.main === module) {
+  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+module.exports = { app, server, io };

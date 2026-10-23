@@ -1,12 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Booking, GroupPool, ActivityLog } = require('./models');
+const { User, Booking, GroupPool, ActivityLog, PerformanceAnalysis } = require('./models');
+const { normalizeWebsiteUrl, requestPageSpeed, PageSpeedError } = require('./performance-analysis');
 let twilioClient = null;
 try {
   if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
@@ -101,12 +103,101 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 app.use(express.static(__dirname));
+app.use('/performance', express.static(path.join(__dirname, 'performance-frontend', 'dist')));
+app.get('/performance', (req, res) => {
+  res.sendFile(path.join(__dirname, 'performance-frontend', 'dist', 'index.html'));
+});
 app.get('/api/config', (req, res) => {
   res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'ProConnect API', timestamp: new Date().toISOString() });
+});
+
+app.post('/api/analyze', async (req, res) => {
+  let websiteUrl;
+  try {
+    websiteUrl = normalizeWebsiteUrl(req.body && (req.body.url || req.body.websiteUrl));
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Analysis history is unavailable because MongoDB is not connected.' });
+  }
+
+  try {
+    const [desktop, mobile] = await Promise.all([
+      requestPageSpeed(websiteUrl, 'desktop'),
+      requestPageSpeed(websiteUrl, 'mobile')
+    ]);
+    const analysis = await PerformanceAnalysis.create({
+      websiteUrl,
+      deviceType: 'desktop-and-mobile',
+      desktop,
+      mobile,
+      analyzedAt: new Date()
+    });
+
+    return res.status(201).json({
+      id: String(analysis._id),
+      websiteUrl: analysis.websiteUrl,
+      analyzedAt: analysis.analyzedAt,
+      desktop: analysis.desktop,
+      mobile: analysis.mobile
+    });
+  } catch (error) {
+    if (error instanceof PageSpeedError) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error('Website performance analysis failed:', error.message);
+    return res.status(500).json({ error: 'Could not save the analysis. Please try again.' });
+  }
+});
+
+app.get('/api/history', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Analysis history is unavailable because MongoDB is not connected.' });
+  }
+
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 50) : 20;
+  try {
+    const analyses = await PerformanceAnalysis.find()
+      .sort({ analyzedAt: -1 })
+      .limit(limit)
+      .select('websiteUrl deviceType desktop.score desktop.metrics mobile.score mobile.metrics analyzedAt')
+      .lean();
+    return res.json({ analyses });
+  } catch (error) {
+    console.error('Could not retrieve performance analysis history:', error.message);
+    return res.status(500).json({ error: 'Could not retrieve analysis history.' });
+  }
+});
+
+app.get('/api/history/:id', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Analysis history is unavailable because MongoDB is not connected.' });
+  }
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid analysis ID.' });
+  }
+
+  try {
+    const analysis = await PerformanceAnalysis.findById(req.params.id).lean();
+    if (!analysis) return res.status(404).json({ error: 'Analysis not found.' });
+    return res.json({
+      id: String(analysis._id),
+      websiteUrl: analysis.websiteUrl,
+      analyzedAt: analysis.analyzedAt,
+      desktop: analysis.desktop,
+      mobile: analysis.mobile
+    });
+  } catch (error) {
+    console.error('Could not retrieve performance analysis:', error.message);
+    return res.status(500).json({ error: 'Could not retrieve this analysis.' });
+  }
 });
 mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub')
   .then(() => console.log('✅ MongoDB connected successfully'))

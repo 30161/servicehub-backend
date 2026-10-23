@@ -85,9 +85,20 @@ const activityLogSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+const performanceAnalysisSchema = new mongoose.Schema({
+  websiteUrl: { type: String, required: true, maxlength: 2048 },
+  deviceType: { type: String, enum: ['desktop-and-mobile'], default: 'desktop-and-mobile' },
+  desktop: { type: mongoose.Schema.Types.Mixed, required: true },
+  mobile: { type: mongoose.Schema.Types.Mixed, required: true },
+  analyzedAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+
+performanceAnalysisSchema.index({ analyzedAt: -1 });
+
 module.exports = {
   User: mongoose.model('User', userSchema),
   Booking: mongoose.model('Booking', bookingSchema),
   GroupPool: mongoose.model('GroupPool', groupPoolSchema),
-  ActivityLog: mongoose.model('ActivityLog', activityLogSchema)
+  ActivityLog: mongoose.model('ActivityLog', activityLogSchema),
+  PerformanceAnalysis: mongoose.model('PerformanceAnalysis', performanceAnalysisSchema)
 };

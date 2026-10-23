@@ -1,0 +1,4 @@
+.env
+performance-frontend/.env
+performance-frontend/node_modules/
+performance-frontend/dist/

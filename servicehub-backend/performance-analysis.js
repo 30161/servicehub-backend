@@ -105,19 +105,49 @@ function extractPageSpeedResult(payload, strategy) {
   const requestWaterfallLoadTime = requestItems.reduce((latest, item) => (
     Number.isFinite(item.networkEndTime) ? Math.max(latest, item.networkEndTime) : latest
   ), 0);
+  const mainDocumentRequest = requestItems.find(item => (
+    (item.resourceType === 'Document' || item.url === lighthouse.finalUrl || item.url === lighthouse.requestedUrl)
+    && Number.isFinite(item.networkRequestTime)
+    && Number.isFinite(item.networkEndTime)
+    && item.networkEndTime >= item.networkRequestTime
+  ));
   const totalTransferSizeBytes = metric('total-byte-weight');
   const performanceScore = lighthouse.categories && lighthouse.categories.performance;
   const recommendations = Object.entries(audits)
     .filter(([, audit]) => Number.isFinite(audit.score) && audit.score < 0.9 && audit.title)
     .sort(([, left], [, right]) => left.score - right.score)
     .slice(0, 10)
-    .map(([id, audit]) => ({
-      id,
-      title: audit.title,
-      description: audit.description || audit.displayValue || audit.title,
-      displayValue: audit.displayValue || null,
-      score: audit.score
-    }));
+    .map(([id, audit]) => {
+      const detailGuidance = Array.isArray(audit.details && audit.details.items)
+        ? audit.details.items.find(item => item && item.description)?.description
+        : null;
+      return {
+        id,
+        title: audit.title,
+        description: audit.description || audit.displayValue || detailGuidance || audit.title,
+        displayValue: audit.displayValue || null,
+        score: audit.score,
+        priority: audit.score < 0.5 ? 'high' : 'medium'
+      };
+    });
+  const scoredAudits = Object.values(audits).filter(audit => (
+    Number.isFinite(audit.score)
+    && !['notApplicable', 'informative', 'manual', 'error'].includes(audit.scoreDisplayMode)
+  ));
+  const passedAudits = scoredAudits.filter(audit => audit.score >= 0.9).length;
+  const auditHealth = {
+    passed: passedAudits,
+    assessed: scoredAudits.length,
+    percentage: scoredAudits.length ? Math.round((passedAudits / scoredAudits.length) * 100) : null
+  };
+  const riskFactors = recommendations.map(item => ({
+    id: item.id,
+    title: item.title,
+    score: item.score,
+    priority: item.priority,
+    whatToFix: item.description,
+    measuredImpact: item.displayValue
+  }));
 
   const categoryScores = {};
   for (const [id, category] of Object.entries(lighthouse.categories || {})) {
@@ -126,14 +156,34 @@ function extractPageSpeedResult(payload, strategy) {
 
   return {
     strategy,
+    lighthouse: {
+      version: lighthouse.lighthouseVersion || null,
+      fetchTime: lighthouse.fetchTime || null,
+      requestedUrl: lighthouse.requestedUrl || null,
+      finalUrl: lighthouse.finalUrl || null,
+      userAgent: lighthouse.userAgent || null,
+      environment: lighthouse.environment || null,
+      configSettings: lighthouse.configSettings || null,
+      timing: lighthouse.timing || null,
+      stackPacks: lighthouse.stackPacks || [],
+      runWarnings: Array.isArray(lighthouse.runWarnings) ? lighthouse.runWarnings : []
+    },
+    analysisUTCTimestamp: payload.analysisUTCTimestamp || null,
     score: Number.isFinite(performanceScore && performanceScore.score)
       ? Math.round(performanceScore.score * 100)
       : null,
+    auditHealth,
+    riskFactors,
     categories: categoryScores,
+    categoryDetails: lighthouse.categories || {},
     metrics: {
       pageLoadTimeMs: metric('load')
         ?? (requestWaterfallLoadTime > 0 ? requestWaterfallLoadTime : metric('interactive')),
+      interactiveMs: metric('interactive'),
       serverResponseTimeMs: metric('server-response-time'),
+      httpResponseTimeMs: mainDocumentRequest
+        ? mainDocumentRequest.networkEndTime - mainDocumentRequest.networkRequestTime
+        : null,
       lcpMs: metric('largest-contentful-paint'),
       inpMs: metric('interaction-to-next-paint')
         ?? cruxMetric(payload.loadingExperience, ['INP', 'INTERACTION_TO_NEXT_PAINT', 'EXPERIMENTAL_INTERACTION_TO_NEXT_PAINT'])
@@ -144,11 +194,17 @@ function extractPageSpeedResult(payload, strategy) {
       fcpMs: metric('first-contentful-paint'),
       speedIndexMs: metric('speed-index'),
       totalBlockingTimeMs: metric('total-blocking-time'),
+      maxPotentialFidMs: metric('max-potential-fid'),
       totalRequests: hasRequestItems ? requestItems.length : null,
       transferSizeBytes: Number.isFinite(totalTransferSizeBytes) ? totalTransferSizeBytes : null
     },
     resources,
-    recommendations
+    recommendations,
+    audits,
+    fieldData: {
+      page: payload.loadingExperience || null,
+      origin: payload.originLoadingExperience || null
+    }
   };
 }
 

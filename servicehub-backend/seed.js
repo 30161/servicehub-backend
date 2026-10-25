@@ -5,7 +5,9 @@ const { User } = require('./models');
 
 async function seed() {
   try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub');
+    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    if (!mongoUri) throw new Error('Set MONGODB_URI before running the seed script.');
+    await mongoose.connect(mongoUri);
     await User.deleteMany({ role: 'provider' });
 
     const password = await bcrypt.hash('secret123', 10);

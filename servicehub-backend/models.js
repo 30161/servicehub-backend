@@ -88,8 +88,11 @@ const activityLogSchema = new mongoose.Schema({
 const performanceAnalysisSchema = new mongoose.Schema({
   websiteUrl: { type: String, required: true, maxlength: 2048 },
   deviceType: { type: String, enum: ['desktop-and-mobile'], default: 'desktop-and-mobile' },
-  desktop: { type: mongoose.Schema.Types.Mixed, required: true },
-  mobile: { type: mongoose.Schema.Types.Mixed, required: true },
+  status: { type: String, enum: ['success', 'failed'], default: 'success' },
+  trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
+  errorMessage: { type: String, default: null },
+  desktop: mongoose.Schema.Types.Mixed,
+  mobile: mongoose.Schema.Types.Mixed,
   analyzedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 

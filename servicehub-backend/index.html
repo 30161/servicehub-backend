@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <!-- Replace CDN script with your local server script -->
-<script src="http://localhost:5000/socket.io/socket.io.js"></script>
+<script src="/socket.io/socket.io.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     .fade-in { animation: fadeIn 0.4s ease-in-out; }
@@ -622,11 +622,11 @@
   </div>
 
   <script>
-    const API_BASE = 'http://localhost:5000/api';
+    const API_BASE = '/api';
   let socket;
   try {
     if (typeof io !== 'undefined') {
-      socket = io('http://localhost:5000');
+      socket = io();
     }
   } catch (e) {
     console.warn('Socket connection failed:', e);

@@ -14,6 +14,10 @@ assert.ok(indexHtml.includes("window.location.href = 'provider-signup.html'"), '
 assert.ok(indexHtml.includes("savedUser && savedUser.role === 'provider'"), 'Home page should detect an active provider on load and route automatically');
 assert.ok(indexHtml.includes("userData.role === 'provider'"), 'Provider login should redirect directly to the dashboard after sign-in');
 assert.ok(providerSignupHtml.includes("const res = await fetch(`${API_BASE}/auth/me`"), 'Provider signup page should validate saved token sessions');
+assert.ok(indexHtml.includes("const API_BASE = '/api'"), 'ProConnect API requests should use the deployed same-origin API');
+assert.ok(!indexHtml.includes('http://localhost:5000'), 'ProConnect must not hardcode a local API/socket URL');
+assert.ok(!providerSignupHtml.includes('http://localhost:5000'), 'Provider signup must use same-origin API requests');
+assert.ok(!providerDashboardHtml.includes('http://localhost:5000'), 'Provider dashboard must use same-origin API requests');
 assert.ok(providerSignupHtml.includes("if (data.user && data.user.role === 'provider')"), 'Provider signup page should auto-redirect known providers');
 assert.ok(providerSignupHtml.includes("res.status === 409"), 'Provider signup should fall back to sign-in when the provider already exists');
 assert.ok(providerSignupHtml.includes("toggleProviderAuthMode"), 'Provider page should support a sign-in mode for returning providers');

@@ -4,7 +4,9 @@ const { User, Booking } = require('./models');
 
 async function viewDatabase() {
   try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub');
+    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    if (!mongoUri) throw new Error('Set MONGODB_URI before checking the database.');
+    await mongoose.connect(mongoUri);
     
     console.log('\n================ USERS IN DATABASE ================');
     const users = await User.find().select('-password');

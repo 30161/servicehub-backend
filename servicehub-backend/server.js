@@ -3,8 +3,8 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const { Server } = require('socket.io');
+const cron = require('node-cron');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { User, Booking, GroupPool, ActivityLog, PerformanceAnalysis } = require('./models');
@@ -20,8 +20,29 @@ try {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
-const JWT_SECRET = process.env.JWT_SECRET || 'servicehub-dev-secret';
+const io = new Server(server);
+const JWT_SECRET = process.env.JWT_SECRET
+  || (process.env.NODE_ENV === 'production' ? null : 'servicehub-dev-secret');
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
+const performanceFrontendDist = path.join(__dirname, 'performance-frontend', 'dist');
+if (require.main === module && process.env.NODE_ENV === 'production') {
+  const missingConfiguration = [];
+  if (!process.env.MONGODB_URI) missingConfiguration.push('MONGODB_URI');
+  if (!JWT_SECRET || JWT_SECRET.length < 32) missingConfiguration.push('JWT_SECRET (at least 32 characters)');
+  if (missingConfiguration.length) {
+    console.error(`Cannot start the production server. Set required environment variables: ${missingConfiguration.join(', ')}.`);
+    process.exit(1);
+  }
+}
+const PERFORMANCE_INTERVAL_MS = 60_000;
+const successfulAnalysisQuery = {
+  websiteUrl: { $type: 'string' },
+  desktop: { $type: 'object' },
+  mobile: { $type: 'object' },
+  status: { $in: ['success', null] }
+};
+let performanceSchedulerTask = null;
+let performanceAnalysisInProgress = false;
 
 const normalizeRoles = roles => {
   const entries = Array.isArray(roles) ? roles : [roles].filter(Boolean);
@@ -99,21 +120,94 @@ io.on('connection', socket => {
   socket.on('leave-video-room', roomId => socket.leave(roomId));
 });
 
-app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 app.use(express.static(__dirname));
-app.use('/performance', express.static(path.join(__dirname, 'performance-frontend', 'dist')));
+app.use('/performance', express.static(performanceFrontendDist, { index: false }));
 app.get('/performance', (req, res) => {
-  res.sendFile(path.join(__dirname, 'performance-frontend', 'dist', 'index.html'));
+  res.sendFile(path.join(performanceFrontendDist, 'index.html'));
+});
+app.get('/performance/{*splat}', (req, res) => {
+  res.sendFile(path.join(performanceFrontendDist, 'index.html'));
 });
 app.get('/api/config', (req, res) => {
   res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, service: 'ProConnect API', timestamp: new Date().toISOString() });
+  const databaseConnected = mongoose.connection.readyState === 1;
+  const configured = Boolean(MONGODB_URI);
+  return res.status(configured && databaseConnected ? 200 : 503).json({
+    ok: configured && databaseConnected,
+    service: 'ProConnect API',
+    database: databaseConnected ? 'connected' : 'disconnected',
+    mongodbUriConfigured: configured,
+    timestamp: new Date().toISOString()
+  });
 });
+
+function nextPerformanceRunAt() {
+  return new Date((Math.floor(Date.now() / PERFORMANCE_INTERVAL_MS) + 1) * PERFORMANCE_INTERVAL_MS);
+}
+
+async function createPerformanceAnalysis(websiteUrl, trigger) {
+  const [desktop, mobile] = await Promise.all([
+    requestPageSpeed(websiteUrl, 'desktop'),
+    requestPageSpeed(websiteUrl, 'mobile')
+  ]);
+  return PerformanceAnalysis.create({
+    websiteUrl,
+    deviceType: 'desktop-and-mobile',
+    status: 'success',
+    trigger,
+    desktop,
+    mobile,
+    analyzedAt: new Date()
+  });
+}
+
+async function runScheduledPerformanceAnalysis() {
+  if (performanceAnalysisInProgress || mongoose.connection.readyState !== 1) return;
+  performanceAnalysisInProgress = true;
+  let websiteUrl;
+  try {
+    const latest = await PerformanceAnalysis.findOne(successfulAnalysisQuery)
+      .sort({ analyzedAt: -1 })
+      .select('websiteUrl')
+      .lean();
+    if (!latest) {
+      console.info('Scheduled performance analysis skipped: no successful website URL exists in MongoDB yet.');
+      return;
+    }
+    websiteUrl = latest.websiteUrl;
+    await createPerformanceAnalysis(websiteUrl, 'scheduled');
+    console.info(`Scheduled performance analysis completed for ${websiteUrl}`);
+  } catch (error) {
+    console.error('Scheduled website performance analysis failed:', error.message);
+    if (websiteUrl && mongoose.connection.readyState === 1) {
+      try {
+        await PerformanceAnalysis.create({
+          websiteUrl,
+          status: 'failed',
+          trigger: 'scheduled',
+          errorMessage: error.message,
+          analyzedAt: new Date()
+        });
+      } catch (saveError) {
+        console.error('Could not save failed scheduled performance analysis:', saveError.message);
+      }
+    }
+  } finally {
+    performanceAnalysisInProgress = false;
+  }
+}
+
+function startPerformanceScheduler() {
+  if (performanceSchedulerTask) return performanceSchedulerTask;
+  performanceSchedulerTask = cron.schedule('* * * * *', runScheduledPerformanceAnalysis);
+  console.info('Performance analysis scheduler started (every minute).');
+  return performanceSchedulerTask;
+}
 
 app.post('/api/analyze', async (req, res) => {
   let websiteUrl;
@@ -126,33 +220,66 @@ app.post('/api/analyze', async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: 'Analysis history is unavailable because MongoDB is not connected.' });
   }
+  if (performanceAnalysisInProgress) {
+    return res.status(409).json({ error: 'A performance analysis is already running. Please try again shortly.' });
+  }
 
+  performanceAnalysisInProgress = true;
   try {
-    const [desktop, mobile] = await Promise.all([
-      requestPageSpeed(websiteUrl, 'desktop'),
-      requestPageSpeed(websiteUrl, 'mobile')
-    ]);
-    const analysis = await PerformanceAnalysis.create({
-      websiteUrl,
-      deviceType: 'desktop-and-mobile',
-      desktop,
-      mobile,
-      analyzedAt: new Date()
-    });
+    const analysis = await createPerformanceAnalysis(websiteUrl, 'manual');
 
     return res.status(201).json({
       id: String(analysis._id),
       websiteUrl: analysis.websiteUrl,
       analyzedAt: analysis.analyzedAt,
+      status: analysis.status,
+      trigger: analysis.trigger,
       desktop: analysis.desktop,
       mobile: analysis.mobile
     });
   } catch (error) {
+    try {
+      await PerformanceAnalysis.create({
+        websiteUrl,
+        status: 'failed',
+        trigger: 'manual',
+        errorMessage: error.message,
+        analyzedAt: new Date()
+      });
+    } catch (saveError) {
+      console.error('Could not save failed performance analysis:', saveError.message);
+    }
     if (error instanceof PageSpeedError) {
       return res.status(error.statusCode).json({ error: error.message });
     }
     console.error('Website performance analysis failed:', error.message);
     return res.status(500).json({ error: 'Could not save the analysis. Please try again.' });
+  } finally {
+    performanceAnalysisInProgress = false;
+  }
+});
+
+app.get('/api/latest', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Analysis history is unavailable because MongoDB is not connected.' });
+  }
+  try {
+    const analysis = await PerformanceAnalysis.findOne(successfulAnalysisQuery)
+      .sort({ analyzedAt: -1 })
+      .lean();
+    if (!analysis) return res.status(404).json({ error: 'No successful performance analysis is available yet.' });
+    return res.json({
+      id: String(analysis._id),
+      websiteUrl: analysis.websiteUrl,
+      analyzedAt: analysis.analyzedAt,
+      status: analysis.status || 'success',
+      trigger: analysis.trigger || 'manual',
+      desktop: analysis.desktop,
+      mobile: analysis.mobile
+    });
+  } catch (error) {
+    console.error('Could not retrieve the latest performance analysis:', error.message);
+    return res.status(500).json({ error: 'Could not retrieve the latest analysis.' });
   }
 });
 
@@ -163,13 +290,41 @@ app.get('/api/history', async (req, res) => {
 
   const requestedLimit = Number.parseInt(req.query.limit, 10);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 50) : 20;
+  const analysisQuery = {
+    websiteUrl: { $type: 'string' },
+    analyzedAt: { $type: 'date' },
+    $or: [
+      { status: 'failed' },
+      {
+        desktop: { $type: 'object' },
+        mobile: { $type: 'object' },
+        status: { $in: ['success', null] }
+      }
+    ]
+  };
+  if (req.query.url) {
+    try {
+      analysisQuery.websiteUrl = normalizeWebsiteUrl(req.query.url);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  }
   try {
     const analyses = await PerformanceAnalysis.find()
+      .where(analysisQuery)
       .sort({ analyzedAt: -1 })
       .limit(limit)
-      .select('websiteUrl deviceType desktop.score desktop.metrics mobile.score mobile.metrics analyzedAt')
+      .select('websiteUrl deviceType status trigger errorMessage desktop.score desktop.metrics desktop.auditHealth mobile.score mobile.metrics mobile.auditHealth analyzedAt')
       .lean();
-    return res.json({ analyses });
+    return res.json({
+      analyses,
+      scheduler: {
+        enabled: Boolean(performanceSchedulerTask),
+        isRunning: performanceAnalysisInProgress,
+        intervalMs: PERFORMANCE_INTERVAL_MS,
+        nextRunAt: performanceSchedulerTask ? nextPerformanceRunAt() : null
+      }
+    });
   } catch (error) {
     console.error('Could not retrieve performance analysis history:', error.message);
     return res.status(500).json({ error: 'Could not retrieve analysis history.' });
@@ -191,6 +346,9 @@ app.get('/api/history/:id', async (req, res) => {
       id: String(analysis._id),
       websiteUrl: analysis.websiteUrl,
       analyzedAt: analysis.analyzedAt,
+      status: analysis.status || 'success',
+      trigger: analysis.trigger || 'manual',
+      errorMessage: analysis.errorMessage || null,
       desktop: analysis.desktop,
       mobile: analysis.mobile
     });
@@ -199,12 +357,19 @@ app.get('/api/history/:id', async (req, res) => {
     return res.status(500).json({ error: 'Could not retrieve this analysis.' });
   }
 });
-mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/servicehub')
-  .then(() => console.log('✅ MongoDB connected successfully'))
-  .catch(err => {
-    console.error('❌ MongoDB Connection Error. Ensure MongoDB service is started.');
-    console.error(err.message);
-  });
+if (!MONGODB_URI) {
+  console.error('MongoDB is not configured. Set MONGODB_URI (or legacy MONGO_URI for local development).');
+} else {
+  mongoose.connect(MONGODB_URI)
+    .then(() => {
+      console.log('✅ MongoDB connected successfully');
+      if (require.main === module) startPerformanceScheduler();
+    })
+    .catch(err => {
+      console.error('❌ MongoDB connection failed. Check MONGODB_URI and Atlas network access.');
+      console.error(err.message);
+    });
+}
 
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -840,7 +1005,14 @@ app.post('/api/sos', async (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  const missingConfiguration = [];
+  if (!MONGODB_URI) missingConfiguration.push('MONGODB_URI');
+  if (missingConfiguration.length) {
+    console.error(`Cannot start the server. Set required environment variables: ${missingConfiguration.join(', ')}.`);
+    process.exitCode = 1;
+  } else {
+    server.listen(PORT, '0.0.0.0', () => console.log(`Server running on 0.0.0.0:${PORT}`));
+  }
 }
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, startPerformanceScheduler, runScheduledPerformanceAnalysis };

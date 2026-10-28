@@ -1,6 +1,4 @@
 exclude:
-  - node_modules
-  - servicehub-backend/node_modules
-  - vendor
-  - Gemfile
-  - Gemfile.lock
+  - node_modules/
+  - servicehub-backend/node_modules/
+  - vendor/

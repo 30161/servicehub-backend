@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ProConnect | Provider Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/safe-render.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body class="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 text-slate-800">
@@ -109,6 +110,7 @@
 
   <script>
     const API_BASE = '/api';
+    const renderSafety = window.ProConnectSafeRender;
     const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
     const hasProviderAccess = savedUser && (
       savedUser.role === 'provider' ||
@@ -126,10 +128,10 @@
     document.getElementById('provider-phone').textContent = savedUser.phone || 'Not provided';
     document.getElementById('provider-summary').innerHTML = `
       <div class="rounded-2xl bg-slate-50 p-4">
-        <p class="font-bold text-slate-900">${savedUser.name || 'Provider'}</p>
-        <p class="mt-1">Email: ${savedUser.email || 'Not available'}</p>
-        <p class="mt-1">Service: ${savedUser.service || 'General service'}</p>
-        <p class="mt-1">Phone: ${savedUser.phone || 'Not provided'}</p>
+        <p class="font-bold text-slate-900">${renderSafety.escapeHtml(savedUser.name || 'Provider')}</p>
+        <p class="mt-1">Email: ${renderSafety.escapeHtml(savedUser.email || 'Not available')}</p>
+        <p class="mt-1">Service: ${renderSafety.escapeHtml(savedUser.service || 'General service')}</p>
+        <p class="mt-1">Phone: ${renderSafety.escapeHtml(savedUser.phone || 'Not provided')}</p>
       </div>
     `;
 
@@ -167,14 +169,14 @@
           <div class="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div class="flex items-center justify-between">
               <p class="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Job details</p>
-              <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">${status}</span>
+              <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">${renderSafety.escapeHtml(status)}</span>
             </div>
-            <h4 class="text-2xl font-extrabold text-slate-900">${job.service || 'Service Request'}</h4>
-            <p><span class="font-semibold text-slate-800">Customer name:</span> ${job.customerName || 'Customer'}</p>
-            <p><span class="font-semibold text-slate-800">Work to be done:</span> ${job.service || 'General service'}</p>
-            <p><span class="font-semibold text-slate-800">Address:</span> ${job.address || 'Address not provided'}</p>
-            <p><span class="font-semibold text-slate-800">AI diagnostic:</span> ${job.aiSummary || 'Issue review pending'}</p>
-            <p><span class="font-semibold text-slate-800">Escrow:</span> ${job.escrowStatus || 'HELD_IN_ESCROW'}</p>
+            <h4 class="text-2xl font-extrabold text-slate-900">${renderSafety.escapeHtml(job.service || 'Service Request')}</h4>
+            <p><span class="font-semibold text-slate-800">Customer name:</span> ${renderSafety.escapeHtml(job.customerName || 'Customer')}</p>
+            <p><span class="font-semibold text-slate-800">Work to be done:</span> ${renderSafety.escapeHtml(job.service || 'General service')}</p>
+            <p><span class="font-semibold text-slate-800">Address:</span> ${renderSafety.escapeHtml(job.address || 'Address not provided')}</p>
+            <p><span class="font-semibold text-slate-800">AI diagnostic:</span> ${renderSafety.escapeHtml(job.aiSummary || 'Issue review pending')}</p>
+            <p><span class="font-semibold text-slate-800">Escrow:</span> ${renderSafety.escapeHtml(job.escrowStatus || 'HELD_IN_ESCROW')}</p>
           </div>
 
           <div class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">

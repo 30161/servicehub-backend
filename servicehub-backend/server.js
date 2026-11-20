@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const cron = require('node-cron');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Booking, GroupPool, ActivityLog, PerformanceAnalysis } = require('./models');
+const { User, Booking, GroupPool, PerformanceAnalysis } = require('./models');
 const { normalizeWebsiteUrl, requestPageSpeed, PageSpeedError } = require('./performance-analysis');
 let twilioClient = null;
 try {
@@ -786,37 +786,31 @@ app.get('/api/bookings/:bookingId/location', requireAuth, async (req, res) => {
 });
 
 // Add a new service / provider listing (Restricted to Providers and Admins)
-app.post('/api/providers', async (req, res) => {
+app.post('/api/providers', requireAuth, async (req, res) => {
   try {
-    const { name, service, price, creatorEmail } = req.body;
-
-    if (!creatorEmail) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
-
-    // Check permissions of the user attempting to create the listing
-    const requestingUser = await User.findOne({ email: creatorEmail });
-    if (!requestingUser || !['provider', 'admin'].includes(requestingUser.role)) {
-      return res.status(403).json({ error: 'Access denied: Only providers or admins can add services.' });
-    }
-
-    if (!name || !service) {
+    const { name, service } = req.body || {};
+    if (typeof name !== 'string' || !name.trim() || typeof service !== 'string' || !service.trim()) {
       return res.status(400).json({ error: 'Name and service title are required.' });
     }
 
-    const newProvider = new User({
-      name,
-      service,
-      rating: 5.0,
-      role: 'provider',
-      email: `${name.toLowerCase().replace(/\s+/g, '')}_${Date.now()}@servicehub.local`,
-      password: 'defaultPassword123'
-    });
+    const requestingUser = await User.findById(req.user._id);
+    if (!requestingUser || !normalizeUserRoleState(requestingUser).roles.includes('provider')) {
+      return res.status(403).json({ error: 'Only authenticated providers can update their listing.' });
+    }
 
-    const saved = await newProvider.save();
-    res.status(201).json(saved);
+    requestingUser.name = name.trim();
+    requestingUser.service = service.trim();
+    requestingUser.providerProfile.serviceCategory = service.trim();
+    requestingUser.providerProfile.servicesOffered = [service.trim()];
+    await requestingUser.save();
+    return res.json({
+      id: requestingUser._id,
+      name: requestingUser.name,
+      service: requestingUser.service,
+      rating: requestingUser.rating
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create service listing' });
+    return res.status(500).json({ error: 'Failed to update service listing.' });
   }
 });
 app.post('/api/ai/diagnose', (req, res) => {
@@ -973,15 +967,6 @@ app.post('/api/calls/masked', async (req, res) => {
     res.status(201).json({ success: true, callSid: call.sid, status: call.status });
   } catch (err) {
     res.status(502).json({ error: 'Twilio could not start the masked call.', details: err.message });
-  }
-});
-
-app.post('/api/activity/log', async (req, res) => {
-  try {
-    const log = await ActivityLog.create(req.body);
-    res.status(201).json(log);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
   }
 });
 

@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <!-- Replace CDN script with your local server script -->
 <script src="/socket.io/socket.io.js"></script>
+<script src="/safe-render.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     .fade-in { animation: fadeIn 0.4s ease-in-out; }
@@ -623,6 +624,7 @@
 
   <script>
     const API_BASE = '/api';
+  const renderSafety = window.ProConnectSafeRender;
   let socket;
   try {
     if (typeof io !== 'undefined') {
@@ -636,39 +638,9 @@
   let userBookings = [];
   let selectedService = null;
   let selectedAccountRole = 'customer';
-  // Silent background logger - directly saves to backend MongoDB
-    function logUserActivity(actionType, details = {}) {
-      const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
-
-      const payload = {
-        userEmail: user ? user.email : 'Guest',
-        userName: user ? user.name : 'Guest',
-        actionType: actionType,
-        details: details
-      };
-
-      // Uses fetch with keepalive to send in the background silently
-      fetch(`${API_BASE}/activity/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true
-      }).catch(() => {});
-    }
-
-    // Automatically and invisibly captures clicks on interactive elements
-    document.addEventListener('click', (e) => {
-      const target = e.target.closest('button, a, select, input');
-      if (!target) return;
-      if (target.tagName === 'A' && target.getAttribute('href') === '#') e.preventDefault();
-
-      const label = target.innerText.trim() || target.placeholder || target.id || target.name || target.tagName;
-      logUserActivity('CLICK_EVENT', {
-        element: target.tagName.toLowerCase(),
-        label: label,
-        id: target.id || undefined
-      });
-    });
+  document.addEventListener('click', event => {
+    if (event.target.closest('a[href="#"]')) event.preventDefault();
+  });
 
   function showPage(pageId) {
     const resolvedPageId = String(pageId || 'home').replace('-page', '');
@@ -732,18 +704,22 @@
       const providerId = s._id || s.id;
       const favorites = getFavoriteIds();
       const isFavorite = favorites.includes(String(providerId));
+      const safeProviderId = renderSafety.escapeInlineArgument(String(providerId));
+      const safeName = renderSafety.escapeHtml(s.name || '');
+      const safeService = renderSafety.escapeHtml(s.service || '');
+      const safeRating = renderSafety.escapeHtml(s.rating || 5.0);
       return `
         <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <div class="flex justify-between items-start mb-3">
-            <h4 class="font-bold text-slate-900">${s.name}</h4>
-            <button type="button" onclick="toggleFavorite('${providerId}', this)" aria-label="${isFavorite ? 'Remove from' : 'Add to'} preferred helpers" class="text-rose-500 hover:text-rose-700"><i class="fa${isFavorite ? 's' : 'r'} fa-heart"></i></button>
+            <h4 class="font-bold text-slate-900">${safeName}</h4>
+            <button type="button" onclick="toggleFavorite(${safeProviderId}, this)" aria-label="${isFavorite ? 'Remove from' : 'Add to'} preferred helpers" class="text-rose-500 hover:text-rose-700"><i class="fa${isFavorite ? 's' : 'r'} fa-heart"></i></button>
           </div>
-          <p class="text-xs text-slate-500 mb-2">${s.service}</p>
+          <p class="text-xs text-slate-500 mb-2">${safeService}</p>
           <div class="flex justify-between items-center text-xs py-2 border-t border-slate-100 mb-3">
-            <span class="text-amber-500 font-bold"><i class="fas fa-star mr-1"></i>${s.rating || 5.0}</span>
+            <span class="text-amber-500 font-bold"><i class="fas fa-star mr-1"></i>${safeRating}</span>
             <span class="font-bold text-slate-900">$65/hr</span>
           </div>
-          <button onclick="startBooking('${s._id || s.id}', '${s.name}', '${s.service}', this)" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition">
+          <button onclick="startBooking(${safeProviderId}, ${renderSafety.escapeInlineArgument(String(s.name || ''))}, ${renderSafety.escapeInlineArgument(String(s.service || ''))}, this)" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition">
             Book Visit
           </button>
         </div>
@@ -808,8 +784,8 @@
       if (container) {
         container.innerHTML = favorites.length ? favorites.map(provider => `
           <div class="flex items-center justify-between rounded-xl border border-slate-200 p-3">
-            <div><p class="font-bold text-sm">${provider.name}</p><p class="text-xs text-slate-500">${provider.service}</p></div>
-            <button type="button" onclick="startBooking('${provider._id || provider.id}', '${provider.name}', '${provider.service}'); closeFavoritesModal();" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">Book</button>
+            <div><p class="font-bold text-sm">${renderSafety.escapeHtml(provider.name || '')}</p><p class="text-xs text-slate-500">${renderSafety.escapeHtml(provider.service || '')}</p></div>
+            <button type="button" onclick="startBooking(${renderSafety.escapeInlineArgument(String(provider._id || provider.id))}, ${renderSafety.escapeInlineArgument(String(provider.name || ''))}, ${renderSafety.escapeInlineArgument(String(provider.service || ''))}); closeFavoritesModal();" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">Book</button>
           </div>`).join('') : '<p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No preferred helpers yet. Tap the heart on a provider card to add one.</p>';
       }
       if (modal) modal.classList.remove('hidden');
@@ -1172,20 +1148,20 @@
               ${items.map(b => `
                 <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                   <div class="flex justify-between items-center gap-3">
-                    <h4 class="font-bold text-slate-900">${b.service}</h4>
-                    <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">${b.status || 'CONFIRMED'}</span>
+                    <h4 class="font-bold text-slate-900">${renderSafety.escapeHtml(b.service || '')}</h4>
+                    <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">${renderSafety.escapeHtml(b.status || 'CONFIRMED')}</span>
                   </div>
-                  <p class="text-xs text-slate-500 mt-1">${b.date || 'N/A'} &bull; ${b.timeSlot || 'Flexible'}</p>
-                  <p class="text-xs text-slate-600 mt-1"><i class="fas fa-location-dot text-red-500 mr-1"></i>${b.address || 'Address not provided'}</p>
+                  <p class="text-xs text-slate-500 mt-1">${renderSafety.escapeHtml(b.date || 'N/A')} &bull; ${renderSafety.escapeHtml(b.timeSlot || 'Flexible')}</p>
+                  <p class="text-xs text-slate-600 mt-1"><i class="fas fa-location-dot text-red-500 mr-1"></i>${renderSafety.escapeHtml(b.address || 'Address not provided')}</p>
                   <div class="mt-3 flex items-center justify-between rounded-xl bg-slate-50 p-3 text-xs">
-                    <span>Payment: ${b.paymentMethod || 'UPI'}</span>
-                    <span class="font-bold text-indigo-600">OTP: ${b.otp || '******'}</span>
+                    <span>Payment: ${renderSafety.escapeHtml(b.paymentMethod || 'UPI')}</span>
+                    <span class="font-bold text-indigo-600">OTP: ${renderSafety.escapeHtml(b.otp || '******')}</span>
                   </div>
                   <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Escrow: ${b.escrowStatus || 'HELD_IN_ESCROW'}</span>
-                    <span>${b.createdAt ? new Date(b.createdAt).toLocaleDateString() : 'Recent'}</span>
+                    <span>Escrow: ${renderSafety.escapeHtml(b.escrowStatus || 'HELD_IN_ESCROW')}</span>
+                    <span>${renderSafety.escapeHtml(b.createdAt ? new Date(b.createdAt).toLocaleDateString() : 'Recent')}</span>
                   </div>
-                  <button type="button" onclick="syncActiveJobFromBooking(${JSON.stringify(b).replace(/"/g, '&quot;')})" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Connect to provider live job</button>
+                  <button type="button" onclick="syncActiveJobFromBooking(${renderSafety.escapeInlineArgument(b)})" class="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Connect to provider live job</button>
                 </div>
               `).join('')}
             </div>
@@ -1897,18 +1873,18 @@
         container.innerHTML = list.map(pool => `
         <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div class="flex items-center justify-between">
-            <h4 class="font-bold text-slate-900">${pool.service}</h4>
-            <span class="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">Save ${pool.discount}</span>
+            <h4 class="font-bold text-slate-900">${renderSafety.escapeHtml(pool.service)}</h4>
+            <span class="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">Save ${renderSafety.escapeHtml(pool.discount)}</span>
           </div>
-          <p class="mt-2 text-xs text-slate-500">${pool.neighborhood}</p>
+          <p class="mt-2 text-xs text-slate-500">${renderSafety.escapeHtml(pool.neighborhood)}</p>
           <div class="mt-3 flex items-center justify-between text-xs text-slate-600">
-            <span>${pool.members}/${pool.targetSlots} joined</span>
-            <button onclick="joinGroupPool('${pool.id}', this)" class="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Join Pool</button>
+            <span>${renderSafety.escapeHtml(pool.members)}/${renderSafety.escapeHtml(pool.targetSlots)} joined</span>
+            <button onclick="joinGroupPool(${renderSafety.escapeInlineArgument(String(pool.id))}, this)" class="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Join Pool</button>
           </div>
         </div>
       `).join('');
       } catch (error) {
-        container.innerHTML = `<p class="text-sm text-rose-600">${error.message}</p>`;
+        container.textContent = error.message || 'Could not load group pools.';
         showNotification(error.message || 'Could not refresh group pools.', true);
       } finally {
         if (refreshButton) setButtonState(refreshButton, { loading: false, label: 'Refresh Pools', disabled: false });

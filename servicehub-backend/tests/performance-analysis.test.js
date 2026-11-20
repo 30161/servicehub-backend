@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { extractPageSpeedResult, normalizeWebsiteUrl } = require('../performance-analysis');
+const { extractPageSpeedResult, normalizeWebsiteUrl, requestPageSpeed } = require('../performance-analysis');
 
 test('normalizes valid HTTP and HTTPS URLs', () => {
   assert.equal(normalizeWebsiteUrl(' example.com '), 'https://example.com/');
@@ -12,6 +12,34 @@ test('rejects invalid, unsupported, credential-bearing, and oversized URLs', () 
     assert.throws(() => normalizeWebsiteUrl(value));
   }
   assert.throws(() => normalizeWebsiteUrl(null));
+});
+
+test('explains how to resolve PageSpeed API permission errors', async () => {
+  const originalFetch = global.fetch;
+  const originalApiKey = process.env.PAGESPEED_API_KEY;
+  process.env.PAGESPEED_API_KEY = 'test-key';
+  global.fetch = async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({ error: { message: 'Permission denied on the service.' } })
+  });
+
+  try {
+    await assert.rejects(
+      requestPageSpeed('https://example.com/', 'desktop'),
+      error => {
+        assert.match(error.message, /API is enabled/);
+        assert.match(error.message, /PAGESPEED_API_KEY/);
+        assert.match(error.message, /Permission denied on the service/);
+        assert.equal(error.statusCode, 502);
+        return true;
+      }
+    );
+  } finally {
+    global.fetch = originalFetch;
+    if (originalApiKey === undefined) delete process.env.PAGESPEED_API_KEY;
+    else process.env.PAGESPEED_API_KEY = originalApiKey;
+  }
 });
 
 test('extracts Lighthouse scores, metrics, resource data, and recommendations', () => {

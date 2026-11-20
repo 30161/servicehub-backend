@@ -58,7 +58,9 @@ async function requestPageSpeed(websiteUrl, strategy) {
       const providerMessage = payload.error && payload.error.message;
       const message = response.status === 429
         ? 'Google PageSpeed Insights rate limit reached. Please try again later.'
-        : `Google PageSpeed Insights could not analyze this website${providerMessage ? `: ${providerMessage}` : '.'}`;
+        : response.status === 403
+          ? `Google PageSpeed Insights denied access. Check that the API is enabled and PAGESPEED_API_KEY is allowed to call it${providerMessage ? `. Google reported: ${providerMessage}` : '.'}`
+          : `Google PageSpeed Insights could not analyze this website${providerMessage ? `: ${providerMessage}` : '.'}`;
       throw new PageSpeedError(message, response.status === 429 ? 429 : 502);
     }
 

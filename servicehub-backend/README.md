@@ -36,6 +36,8 @@ PAGESPEED_API_KEY=your-pagespeed-insights-api-key
 
 Set a strong `JWT_SECRET` as well. `MONGODB_URI` can point to local MongoDB during development or MongoDB Atlas for deployment. The PageSpeed key is only read by the backend and is never sent to the frontend. Keep `.env` private.
 
+If PageSpeed returns **403 Permission denied**, verify that the PageSpeed Insights API is enabled in the Google Cloud project that owns the key, and that the key's API restrictions allow PageSpeed Insights. Because this is a backend request, do not restrict the key to website HTTP referrers; use an appropriate server IP restriction or temporarily remove application restrictions while testing. Set the key as `PAGESPEED_API_KEY` in the backend's environment (not the frontend), then restart the backend.
+
 ## Install and run
 
 Install the backend dependencies and build the React dashboard:

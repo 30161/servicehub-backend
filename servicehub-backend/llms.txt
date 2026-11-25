@@ -1,0 +1,12 @@
+# ProConnect
+
+> Discover local service providers, explore home services, and request bookings with ProConnect.
+
+## Public pages
+
+- [Home](https://pro-connect-g5d5.onrender.com/): Explore local service listings and customer services.
+- [Provider sign-up](https://pro-connect-g5d5.onrender.com/provider-signup.html): Register as a service provider.
+
+## Notes
+
+- Account access is required for customer and provider workflows.

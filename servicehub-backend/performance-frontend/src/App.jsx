@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   ArcElement,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
-  Filler,
-  LineElement,
   LinearScale,
-  PointElement,
   Tooltip
 } from 'chart.js';
 
-ChartJS.register(ArcElement, BarElement, CategoryScale, Filler, LineElement, LinearScale, PointElement, Tooltip);
+ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip);
 
 const metricCards = [
   { key: 'pageLoadTimeMs', label: 'Page load time', unit: 'time' },
@@ -78,6 +75,14 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function formatUptime(seconds) {
+  if (!Number.isFinite(seconds)) return 'Unavailable';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return days ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
+}
+
 function scoreTone(score) {
   if (!Number.isFinite(score)) return 'text-muted';
   if (score >= 90) return 'text-forest';
@@ -113,6 +118,8 @@ function App() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [scheduler, setScheduler] = useState(null);
+  const [projectMetrics, setProjectMetrics] = useState(null);
+  const [projectMetricsError, setProjectMetricsError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [trendMetric, setTrendMetric] = useState('score');
@@ -143,15 +150,28 @@ function App() {
     }
   }, []);
 
+  const refreshProjectMetrics = useCallback(async () => {
+    try {
+      const result = await apiRequest('/metrics');
+      setProjectMetrics(result);
+      setProjectMetricsError('');
+    } catch (requestError) {
+      setProjectMetricsError(requestError.message);
+    }
+  }, []);
+
   useEffect(() => {
     refreshHistory();
+    refreshProjectMetrics();
     const pollInterval = setInterval(refreshHistory, 60_000);
+    const metricsPollInterval = setInterval(refreshProjectMetrics, 60_000);
     const countdownInterval = setInterval(() => setClockNow(Date.now()), 1000);
     return () => {
       clearInterval(pollInterval);
+      clearInterval(metricsPollInterval);
       clearInterval(countdownInterval);
     };
-  }, [refreshHistory]);
+  }, [refreshHistory, refreshProjectMetrics]);
 
   async function analyzeWebsite(event) {
     event.preventDefault();
@@ -230,16 +250,16 @@ function App() {
           data: monitoringHistory.map(item => valueFor(item, 'desktop')),
           borderColor: '#176a55',
           backgroundColor: '#176a55',
-          tension: 0.3,
-          spanGaps: false
+          borderRadius: 5,
+          maxBarThickness: 28
         },
         {
           label: 'Mobile',
           data: monitoringHistory.map(item => valueFor(item, 'mobile')),
           borderColor: '#d98a36',
           backgroundColor: '#d98a36',
-          tension: 0.3,
-          spanGaps: false
+          borderRadius: 5,
+          maxBarThickness: 28
         }
       ],
       metric
@@ -269,10 +289,68 @@ function App() {
     };
   }, [monitoringHistory]);
 
+  const projectRequestsData = useMemo(() => ({
+    labels: ['All requests', '4xx errors', '5xx errors'],
+    datasets: [{
+      label: 'Requests since startup',
+      data: [
+        projectMetrics?.requests.total,
+        projectMetrics?.requests.clientErrors,
+        projectMetrics?.requests.serverErrors
+      ],
+      backgroundColor: ['#176a55', '#d98a36', '#c45151'],
+      borderRadius: 5,
+      maxBarThickness: 42
+    }]
+  }), [projectMetrics]);
+
+  const projectLatencyData = useMemo(() => ({
+    labels: ['Average response', 'Maximum response'],
+    datasets: [{
+      label: 'Duration (ms)',
+      data: [
+        projectMetrics?.requests.averageDurationMs,
+        projectMetrics?.requests.maxDurationMs
+      ],
+      backgroundColor: ['#65a88d', '#176a55'],
+      borderRadius: 5,
+      maxBarThickness: 42
+    }]
+  }), [projectMetrics]);
+
+  const projectMemoryData = useMemo(() => ({
+    labels: ['RSS', 'Heap used', 'Heap total', 'External'],
+    datasets: [{
+      label: 'Memory (MB)',
+      data: [
+        projectMetrics?.process.memoryBytes.rss,
+        projectMetrics?.process.memoryBytes.heapUsed,
+        projectMetrics?.process.memoryBytes.heapTotal,
+        projectMetrics?.process.memoryBytes.external
+      ].map(value => Number.isFinite(value) ? value / (1024 * 1024) : null),
+      backgroundColor: ['#176a55', '#65a88d', '#a9c9b7', '#d3e5d9'],
+      borderRadius: 5,
+      maxBarThickness: 42
+    }]
+  }), [projectMetrics]);
+
+  const projectCpuData = useMemo(() => ({
+    labels: ['User CPU', 'System CPU'],
+    datasets: [{
+      label: 'CPU time since startup (ms)',
+      data: [
+        projectMetrics?.process.cpuMicroseconds.user,
+        projectMetrics?.process.cpuMicroseconds.system
+      ].map(value => Number.isFinite(value) ? value / 1000 : null),
+      backgroundColor: ['#176a55', '#65a88d'],
+      borderRadius: 5,
+      maxBarThickness: 42
+    }]
+  }), [projectMetrics]);
+
   const trendOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { position: 'bottom', labels: { usePointStyle: true } },
       tooltip: {
@@ -338,6 +416,19 @@ function App() {
     scales: {
       x: { beginAtZero: true, grid: { color: '#edf0ee' }, ticks: { precision: 0 } },
       y: { grid: { display: false } }
+    }
+  }), []);
+
+  const projectChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { intersect: false }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { beginAtZero: true, grid: { color: '#edf0ee' } }
     }
   }), []);
 
@@ -428,6 +519,46 @@ function App() {
                 Latest test failed: {history.find(item => item.status === 'failed' && item.websiteUrl === monitoredUrl).errorMessage || 'The website could not be analyzed.'}
               </p>
             )}
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-line bg-white p-5 shadow-card" aria-labelledby="project-metrics-heading">
+            <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+              <div>
+                <h2 id="project-metrics-heading" className="text-sm font-bold">Project runtime metrics</h2>
+                <p className="mt-1 text-xs text-muted">Backend process and HTTP measurements since this server started.</p>
+              </div>
+              {projectMetrics && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                  <span>Uptime: <strong className="text-ink">{formatUptime(projectMetrics.uptimeSeconds)}</strong></span>
+                  <span>Database: <strong className="capitalize text-ink">{projectMetrics.database}</strong></span>
+                  <span>Updated: {formatDate(projectMetrics.generatedAt)}</span>
+                </div>
+              )}
+            </div>
+            {projectMetricsError && (
+              <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+                Project metrics unavailable: {projectMetricsError}
+              </p>
+            )}
+            {projectMetrics ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[
+                  ['Requests and errors', projectRequestsData],
+                  ['Response duration', projectLatencyData],
+                  ['Process memory', projectMemoryData],
+                  ['Process CPU time', projectCpuData]
+                ].map(([title, data]) => (
+                  <div key={title} className="rounded-xl border border-line p-4">
+                    <h3 className="mb-3 text-xs font-semibold">{title}</h3>
+                    <div className="h-48">
+                      <Bar data={data} options={projectChartOptions} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !projectMetricsError ? (
+              <p className="py-10 text-center text-sm text-muted">Loading project metrics…</p>
+            ) : null}
           </section>
 
           {status === 'analyzing' && (
@@ -534,7 +665,7 @@ function App() {
               <section className="rounded-2xl border border-line bg-white p-5 shadow-card">
                 <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
                   <div>
-                    <h3 className="text-sm font-bold">Performance over time</h3>
+                    <h3 className="text-sm font-bold">Website metrics over time</h3>
                     <p className="mt-1 text-xs text-muted">
                       Actual saved PageSpeed measurements for {device === 'mobile' ? 'mobile and desktop' : 'desktop and mobile'}.
                       Missing field data is left blank.
@@ -553,7 +684,7 @@ function App() {
                 </div>
                 {monitoringHistory.length > 0 ? (
                   <div className="h-72">
-                    <Line data={trendData} options={trendOptions} />
+                    <Bar data={trendData} options={trendOptions} />
                   </div>
                 ) : (
                   <p className="py-10 text-center text-sm text-muted">Historical measurements will appear after a successful test.</p>

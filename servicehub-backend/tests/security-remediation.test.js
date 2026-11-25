@@ -22,6 +22,24 @@ test('does not silently collect click activity', async () => {
   assert.equal(removedEndpoint.status, 404);
 });
 
+test('serves SEO and agent discovery metadata', async () => {
+  const homepage = await request(app).get('/');
+  assert.match(homepage.text, /<meta name="description"/);
+  assert.match(homepage.text, /<link rel="ard" href="\/.well-known\/ard\.json">/);
+
+  const robots = await request(app).get('/robots.txt');
+  assert.equal(robots.status, 200);
+  assert.match(robots.text, /User-agent: \*/);
+
+  const llms = await request(app).get('/llms.txt');
+  assert.equal(llms.status, 200);
+  assert.match(llms.text, /# ProConnect/);
+
+  const ardResponse = await request(app).get('/.well-known/ard.json');
+  assert.equal(ardResponse.status, 200);
+  assert.equal(ardResponse.body.entries[0].identifier, 'urn:air:pro-connect-g5d5.onrender.com:website');
+});
+
 test('requires a valid authenticated provider before changing a provider listing', async () => {
   const response = await request(app)
     .post('/api/providers')

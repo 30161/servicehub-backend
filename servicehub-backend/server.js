@@ -2,14 +2,21 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const { performance } = require('node:perf_hooks');
+const crypto = require('node:crypto');
 const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const cron = require('node-cron');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Booking, GroupPool, PerformanceAnalysis } = require('./models');
+const nodemailer = require('nodemailer');
+const { initializeApp, cert, applicationDefault, getApps } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { User, Booking, GroupPool, PerformanceAnalysis, GoogleLoginChallenge } = require('./models');
 const { normalizeWebsiteUrl, requestPageSpeed, PageSpeedError } = require('./performance-analysis');
 let twilioClient = null;
+let googleOtpEmailTransport = null;
+let firebaseAdminAuth = null;
 try {
   if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
     twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -43,6 +50,14 @@ const successfulAnalysisQuery = {
 };
 let performanceSchedulerTask = null;
 let performanceAnalysisInProgress = false;
+const runtimeMetricsStartedAt = new Date();
+const runtimeMetrics = {
+  totalRequests: 0,
+  clientErrors: 0,
+  serverErrors: 0,
+  totalDurationMs: 0,
+  maxDurationMs: 0
+};
 
 const normalizeRoles = roles => {
   const entries = Array.isArray(roles) ? roles : [roles].filter(Boolean);
@@ -120,7 +135,29 @@ io.on('connection', socket => {
   socket.on('leave-video-room', roomId => socket.leave(roomId));
 });
 
+app.use((req, res, next) => {
+  if (req.path === '/api/metrics') return next();
+
+  const startedAt = performance.now();
+  res.once('finish', () => {
+    const durationMs = Math.max(0, performance.now() - startedAt);
+    runtimeMetrics.totalRequests += 1;
+    runtimeMetrics.totalDurationMs += durationMs;
+    runtimeMetrics.maxDurationMs = Math.max(runtimeMetrics.maxDurationMs, durationMs);
+    if (res.statusCode >= 500) runtimeMetrics.serverErrors += 1;
+    else if (res.statusCode >= 400) runtimeMetrics.clientErrors += 1;
+  });
+  next();
+});
+
 app.use(express.json());
+
+app.get('/.well-known/ard.json', (req, res) => {
+  res.type('application/json').sendFile(
+    path.join(__dirname, '.well-known', 'ard.json'),
+    { dotfiles: 'allow' }
+  );
+});
 
 app.use(express.static(__dirname));
 app.use('/performance', express.static(performanceFrontendDist, { index: false }));
@@ -131,7 +168,16 @@ app.get('/performance/{*splat}', (req, res) => {
   res.sendFile(path.join(performanceFrontendDist, 'index.html'));
 });
 app.get('/api/config', (req, res) => {
-  res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
+  const projectId = process.env.FIREBASE_PROJECT_ID || '';
+  const firebaseConfig = process.env.FIREBASE_API_KEY && projectId && process.env.FIREBASE_APP_ID
+    ? {
+      apiKey: process.env.FIREBASE_API_KEY,
+      authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+      projectId,
+      appId: process.env.FIREBASE_APP_ID
+    }
+    : null;
+  res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '', firebaseConfig });
 });
 
 app.get('/api/health', (req, res) => {
@@ -143,6 +189,40 @@ app.get('/api/health', (req, res) => {
     database: databaseConnected ? 'connected' : 'disconnected',
     mongodbUriConfigured: configured,
     timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/metrics', (req, res) => {
+  const uptimeSeconds = process.uptime();
+  const memoryUsage = process.memoryUsage();
+  const cpuUsage = process.cpuUsage();
+  return res.json({
+    generatedAt: new Date().toISOString(),
+    startedAt: runtimeMetricsStartedAt.toISOString(),
+    uptimeSeconds: Math.round(uptimeSeconds * 100) / 100,
+    requests: {
+      total: runtimeMetrics.totalRequests,
+      clientErrors: runtimeMetrics.clientErrors,
+      serverErrors: runtimeMetrics.serverErrors,
+      averageDurationMs: runtimeMetrics.totalRequests
+        ? Math.round((runtimeMetrics.totalDurationMs / runtimeMetrics.totalRequests) * 100) / 100
+        : 0,
+      maxDurationMs: Math.round(runtimeMetrics.maxDurationMs * 100) / 100
+    },
+    process: {
+      nodeVersion: process.version,
+      memoryBytes: {
+        rss: memoryUsage.rss,
+        heapTotal: memoryUsage.heapTotal,
+        heapUsed: memoryUsage.heapUsed,
+        external: memoryUsage.external
+      },
+      cpuMicroseconds: {
+        user: cpuUsage.user,
+        system: cpuUsage.system
+      }
+    },
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   });
 });
 
@@ -370,6 +450,273 @@ if (!MONGODB_URI) {
       console.error(err.message);
     });
 }
+
+function getFirebaseAdminAuth() {
+  if (firebaseAdminAuth) return firebaseAdminAuth;
+
+  const existingApp = getApps().find(firebaseApp => firebaseApp.name === 'servicehub-auth');
+  if (existingApp) {
+    firebaseAdminAuth = getAuth(existingApp);
+    return firebaseAdminAuth;
+  }
+
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const credential = serviceAccountJson
+    ? cert(JSON.parse(serviceAccountJson))
+    : applicationDefault();
+  const firebaseApp = initializeApp({
+    credential,
+    projectId: process.env.FIREBASE_PROJECT_ID || undefined
+  }, 'servicehub-auth');
+  firebaseAdminAuth = getAuth(firebaseApp);
+  return firebaseAdminAuth;
+}
+
+function getGoogleOtpEmailTransport() {
+  if (googleOtpEmailTransport) return googleOtpEmailTransport;
+
+  const port = Number(process.env.SMTP_PORT || 587);
+  if (!process.env.SMTP_HOST || !Number.isInteger(port) || port < 1 || port > 65535 || !process.env.SMTP_FROM_EMAIL) {
+    throw new Error('SMTP_HOST, SMTP_PORT, and SMTP_FROM_EMAIL are required for email OTP.');
+  }
+  if (Boolean(process.env.SMTP_USER) !== Boolean(process.env.SMTP_PASSWORD)) {
+    throw new Error('SMTP_USER and SMTP_PASSWORD must both be configured or both be empty.');
+  }
+
+  const options = {
+    host: process.env.SMTP_HOST,
+    port,
+    secure: process.env.SMTP_SECURE === 'true' || port === 465
+  };
+  if (process.env.SMTP_USER) {
+    options.auth = { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD };
+  }
+  googleOtpEmailTransport = nodemailer.createTransport(options);
+  return googleOtpEmailTransport;
+}
+
+function googleOtpDigest(identityKey, otp) {
+  return crypto.createHmac('sha256', JWT_SECRET || 'servicehub-dev-secret')
+    .update(`${identityKey}:${otp}`)
+    .digest('hex');
+}
+
+function maskEmail(email) {
+  const [localPart, domain] = email.split('@');
+  const visibleLocalPart = localPart.length > 2
+    ? `${localPart[0]}***${localPart[localPart.length - 1]}`
+    : `${localPart[0]}***`;
+  return `${visibleLocalPart}@${domain}`;
+}
+
+function createGoogleUserProfiles(service) {
+  return {
+    customerProfile: {
+      preferences: [],
+      savedAddresses: [],
+      bookingHistory: [],
+      reviewsGiven: [],
+      favoriteProviders: []
+    },
+    providerProfile: {
+      profilePhoto: '',
+      servicesOffered: service ? [service] : [],
+      serviceCategory: service || '',
+      description: '',
+      skills: [],
+      experience: '',
+      pricing: '',
+      availability: '',
+      serviceLocation: '',
+      ratings: 5.0,
+      verificationStatus: 'pending',
+      bankDetails: {}
+    }
+  };
+}
+
+app.post('/api/auth/google/start', async (req, res) => {
+  const { idToken } = req.body || {};
+  const role = String(req.body && req.body.role || '').toLowerCase();
+  if (typeof idToken !== 'string' || !idToken || !['customer', 'provider'].includes(role)) {
+    return res.status(400).json({ error: 'A Google ID token and a valid account type are required.' });
+  }
+
+  let firebaseAuth;
+  try {
+    firebaseAuth = getFirebaseAdminAuth();
+  } catch (error) {
+    console.error('Google sign-in is unavailable because Firebase Admin is not configured:', error.message);
+    return res.status(503).json({ error: 'Google sign-in is not configured. Please contact the site administrator.' });
+  }
+
+  let identity;
+  try {
+    identity = await firebaseAuth.verifyIdToken(idToken);
+  } catch (error) {
+    if (error.code && error.code.startsWith('auth/')) {
+      return res.status(401).json({ error: 'Google sign-in could not verify your account. Please try again.' });
+    }
+    console.error('Firebase could not verify a Google sign-in token:', error.message);
+    return res.status(503).json({ error: 'Google sign-in is temporarily unavailable. Please try again.' });
+  }
+
+  const email = String(identity.email || '').trim().toLowerCase();
+  if (identity.firebase?.sign_in_provider !== 'google.com' || !identity.email_verified || !email) {
+    return res.status(401).json({ error: 'Use a verified Google account to continue.' });
+  }
+
+  let emailTransport;
+  try {
+    emailTransport = getGoogleOtpEmailTransport();
+  } catch (error) {
+    console.error('Google sign-in email OTP is not configured:', error.message);
+    return res.status(503).json({ error: 'Email verification is not configured. Please contact the site administrator.' });
+  }
+
+  const now = new Date();
+  const recentChallenge = await GoogleLoginChallenge.findOne({
+    email,
+    sentAt: { $gt: new Date(now.getTime() - 60_000) }
+  });
+  if (recentChallenge) {
+    return res.status(429).json({ error: 'A verification code was sent recently. Please wait one minute before trying again.' });
+  }
+
+  const otp = String(crypto.randomInt(100000, 1000000));
+  const service = String(req.body.service || '').trim().slice(0, 120);
+  const challenge = await GoogleLoginChallenge.findOneAndUpdate(
+    { email },
+    {
+      $set: {
+        name: String(identity.name || '').trim() || email.split('@')[0],
+        role,
+        service,
+        otpHash: googleOtpDigest(email, otp),
+        attempts: 0,
+        claimedAt: null,
+        sentAt: now,
+        expiresAt: new Date(now.getTime() + 10 * 60_000)
+      },
+      $setOnInsert: { email }
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  try {
+    const fromName = process.env.SMTP_FROM_NAME || 'ProConnect';
+    await emailTransport.sendMail({
+      from: `"${fromName}" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: email,
+      subject: 'Your ProConnect sign-in code',
+      text: `Your ProConnect verification code is ${otp}. It expires in 10 minutes.`,
+      html: `<p>Your ProConnect verification code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px">${otp}</p><p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p>`
+    });
+  } catch (error) {
+    await GoogleLoginChallenge.deleteOne({ _id: challenge._id });
+    console.error('Could not send Google sign-in email OTP:', error.message);
+    return res.status(502).json({ error: 'Could not send the verification email. Please try again later.' });
+  }
+
+  return res.status(202).json({
+    challengeId: challenge._id,
+    email: maskEmail(email),
+    expiresInSeconds: 600
+  });
+});
+
+app.post('/api/auth/google/verify', async (req, res) => {
+  const { challengeId, otp } = req.body || {};
+  if (!mongoose.isValidObjectId(challengeId) || typeof otp !== 'string' || !/^\d{6}$/.test(otp)) {
+    return res.status(400).json({ error: 'A valid challenge ID and six-digit verification code are required.' });
+  }
+
+  const now = new Date();
+  const pendingChallenge = await GoogleLoginChallenge.findById(challengeId);
+  if (!pendingChallenge) {
+    return res.status(401).json({ error: 'The verification code is incorrect or expired.' });
+  }
+  const otpHash = googleOtpDigest(pendingChallenge.email, otp);
+  const challenge = await GoogleLoginChallenge.findOneAndUpdate(
+    {
+      _id: challengeId,
+      otpHash,
+      expiresAt: { $gt: now },
+      attempts: { $lt: 5 },
+      claimedAt: null
+    },
+    { $set: { claimedAt: now } },
+    { new: true }
+  );
+
+  if (!challenge) {
+    const failedAttempt = await GoogleLoginChallenge.findOneAndUpdate(
+      {
+        _id: challengeId,
+        expiresAt: { $gt: now },
+        attempts: { $lt: 5 },
+        claimedAt: null
+      },
+      { $inc: { attempts: 1 } },
+      { new: true }
+    );
+    if (failedAttempt && failedAttempt.attempts >= 5) {
+      await GoogleLoginChallenge.deleteOne({ _id: challengeId });
+      return res.status(429).json({ error: 'Too many incorrect codes. Start Google sign-in again.' });
+    }
+    if (failedAttempt) {
+      return res.status(401).json({ error: 'The verification code is incorrect or expired.' });
+    }
+
+    const currentChallenge = await GoogleLoginChallenge.findById(challengeId);
+    if (currentChallenge && currentChallenge.attempts >= 5) {
+      await GoogleLoginChallenge.deleteOne({ _id: challengeId });
+      return res.status(429).json({ error: 'Too many incorrect codes. Start Google sign-in again.' });
+    }
+    return res.status(401).json({ error: 'The verification code is incorrect or expired.' });
+  }
+
+  try {
+    let user = await User.findOne({ email: challenge.email });
+    if (!user) {
+      const profiles = createGoogleUserProfiles(challenge.service);
+      user = await User.create({
+        name: challenge.name,
+        email: challenge.email,
+        password: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10),
+        roles: [challenge.role],
+        activeRole: challenge.role,
+        role: challenge.role,
+        ...profiles
+      });
+    } else {
+      user.roles = normalizeRoles([...user.roles, challenge.role]);
+      if (challenge.role === 'provider' && !user.providerProfile) {
+        user.providerProfile = createGoogleUserProfiles(challenge.service).providerProfile;
+      } else if (challenge.role === 'provider' && challenge.service && !user.providerProfile.serviceCategory) {
+        user.providerProfile.serviceCategory = challenge.service;
+        user.providerProfile.servicesOffered = [challenge.service];
+      }
+      if (!user.customerProfile) {
+        user.customerProfile = createGoogleUserProfiles('').customerProfile;
+      }
+      user.activeRole = challenge.role;
+      user.role = challenge.role;
+      normalizeUserRoleState(user);
+      await user.save();
+    }
+
+    await GoogleLoginChallenge.deleteOne({ _id: challenge._id });
+    const token = jwt.sign({ id: user._id, role: user.activeRole }, JWT_SECRET);
+    const safeUser = user.toObject();
+    delete safeUser.password;
+    return res.json({ token, user: safeUser });
+  } catch (error) {
+    await GoogleLoginChallenge.deleteOne({ _id: challenge._id });
+    console.error('Could not complete Google sign-in:', error.message);
+    return res.status(500).json({ error: 'Could not complete Google sign-in. Please try again.' });
+  }
+});
 
 app.post('/api/auth/register', async (req, res) => {
   try {

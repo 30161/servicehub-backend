@@ -1,0 +1,21 @@
+{
+  "entries": [
+    {
+      "@context": "https://agenticresourcediscovery.org/context/v1",
+      "identifier": "urn:air:pro-connect-g5d5.onrender.com:website",
+      "displayName": "ProConnect Local Services",
+      "type": "text/html",
+      "url": "https://pro-connect-g5d5.onrender.com/",
+      "description": "A web application for discovering local home-service providers and requesting bookings.",
+      "representativeQueries": [
+        "Find a local provider for a home service.",
+        "Explore service providers for a home repair.",
+        "Request a booking with a local service provider."
+      ],
+      "capabilities": [
+        "provider-discovery",
+        "service-booking"
+      ]
+    }
+  ]
+}

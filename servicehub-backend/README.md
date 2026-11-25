@@ -36,6 +36,16 @@ PAGESPEED_API_KEY=your-pagespeed-insights-api-key
 
 Set a strong `JWT_SECRET` as well. `MONGODB_URI` can point to local MongoDB during development or MongoDB Atlas for deployment. The PageSpeed key is only read by the backend and is never sent to the frontend. Keep `.env` private.
 
+### Google sign-in with email OTP
+
+Google sign-in is available for customers and providers. Firebase verifies the Google account, then the backend emails a six-digit OTP for every sign-in. Codes expire after 10 minutes and allow up to five attempts; a new code can be requested once per minute.
+
+1. In Firebase Console, create a Web App, enable **Google** under Authentication providers, and add your local/deployed host to the authorized domains.
+2. Set `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, and `FIREBASE_APP_ID` from the Firebase Web App configuration.
+3. Configure Firebase Admin credentials using `FIREBASE_SERVICE_ACCOUNT_JSON`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file outside the repository. The service account must belong to the same Firebase project. Never expose or commit its private key.
+4. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM_EMAIL` for an SMTP provider authorized to send from that address. `SMTP_USER` and `SMTP_PASSWORD` must either both be set or both be empty.
+5. Restart the backend after setting these values. The Firebase web-app config is public; Firebase Admin and SMTP credentials must remain server-side.
+
 If PageSpeed returns **403 Permission denied**, verify that the PageSpeed Insights API is enabled in the Google Cloud project that owns the key, and that the key's API restrictions allow PageSpeed Insights. Because this is a backend request, do not restrict the key to website HTTP referrers; use an appropriate server IP restriction or temporarily remove application restrictions while testing. Set the key as `PAGESPEED_API_KEY` in the backend's environment (not the frontend), then restart the backend.
 
 ## Install and run
@@ -75,9 +85,14 @@ npm start
 
 Then open `http://localhost:5000/performance`.
 
+The local dashboard shows backend runtime metrics as bar charts and website PageSpeed history as desktop/mobile bar charts. Runtime charts refresh every minute; website charts use successful reports saved in MongoDB.
+
 ## API
 
 - `GET /api/health` — existing server health check.
+- `POST /api/auth/google/start` — verifies a Firebase Google ID token and emails an OTP; accepts `{ "idToken": "...", "role": "customer" }` (or `"provider"`).
+- `POST /api/auth/google/verify` — verifies the email OTP and returns the ServiceHub session; accepts `{ "challengeId": "...", "otp": "123456" }`.
+- `GET /api/metrics` — process uptime and memory/CPU usage, HTTP request totals, client/server error counts, average/maximum request duration, and database connection status. Request metrics are in-memory and reset whenever the server restarts; requests to this endpoint are excluded from its own totals.
 - `POST /api/analyze` — accepts `{ "url": "https://example.com" }`; runs desktop and mobile audits, stores both in MongoDB, and returns the structured report.
 - `GET /api/latest` — returns the latest successful full report from MongoDB.
 - `GET /api/history?limit=20` — returns up to 50 recent successful or failed tests with scores, metrics, and scheduler status. Add `url=<encoded-website-url>` to filter history to a site.

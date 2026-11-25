@@ -37,6 +37,12 @@ assert.ok(indexHtml.includes("settings-modal"), 'Signed-in user profile should h
 assert.ok(indexHtml.includes("toggleProfileSettings"), 'Settings button should open the profile settings modal');
 assert.ok(indexHtml.includes("id=\"nav-auth-btn\""), 'Sign-in button should exist on the user page');
 assert.ok(indexHtml.includes("openAccountChoice()"), 'Sign-in button should trigger the account choice flow');
+assert.ok(indexHtml.includes('google-auth.js'), 'Customer page should load the Google sign-in client');
+assert.ok(indexHtml.includes('handleGoogleSignIn()'), 'Customer page should provide Google sign-in');
+assert.ok(indexHtml.includes('handleGoogleOtpVerify()'), 'Customer page should provide the email OTP verification step');
+assert.ok(providerSignupHtml.includes('google-auth.js'), 'Provider page should load the Google sign-in client');
+assert.ok(providerSignupHtml.includes('handleProviderGoogleSignIn()'), 'Provider page should provide Google sign-in');
+assert.ok(providerSignupHtml.includes('handleProviderGoogleOtpVerify()'), 'Provider page should provide the email OTP verification step');
 assert.ok(indexHtml.includes("proconnectActiveJob"), 'User page should sync a shared active booking state with the provider portal');
 assert.ok(indexHtml.includes("PROVIDER_EN_ROUTE"), 'User page should expose the live provider status states');
 assert.ok(indexHtml.includes("Confirm payment release"), 'Customer should be able to confirm escrow release with the shared OTP');

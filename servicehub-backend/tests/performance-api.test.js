@@ -12,11 +12,24 @@ test('performance API validates requests and exposes health and dashboard routes
   assert.equal(health.status, 200);
   assert.equal(health.body.database, 'connected');
 
+  const metrics = await request(app).get('/api/metrics');
+  assert.equal(metrics.status, 200);
+  assert.ok(metrics.body.uptimeSeconds >= 0);
+  assert.ok(metrics.body.requests.total >= 1);
+  assert.ok(metrics.body.requests.averageDurationMs >= 0);
+  assert.ok(metrics.body.process.memoryBytes.heapUsed > 0);
+  assert.equal(metrics.body.database, 'connected');
+
+  const requestsBeforeInvalidInput = metrics.body.requests.total;
+  const clientErrorsBeforeInvalidInput = metrics.body.requests.clientErrors;
   const invalidAnalysis = await request(app)
     .post('/api/analyze')
     .send({ url: 'file:///etc/passwd' });
   assert.equal(invalidAnalysis.status, 400);
   assert.match(invalidAnalysis.body.error, /HTTP or HTTPS/);
+  const updatedMetrics = await request(app).get('/api/metrics');
+  assert.equal(updatedMetrics.body.requests.total, requestsBeforeInvalidInput + 1);
+  assert.equal(updatedMetrics.body.requests.clientErrors, clientErrorsBeforeInvalidInput + 1);
 
   const invalidHistoryId = await request(app).get('/api/history/not-an-object-id');
   assert.equal(invalidHistoryId.status, 400);

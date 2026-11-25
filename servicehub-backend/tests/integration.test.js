@@ -38,6 +38,11 @@ async function run() {
   });
   assert.equal(login.status, 200, 'Login should succeed for the customer');
 
+  const invalidGoogleStart = await request(app).post('/api/auth/google/start').send({});
+  assert.equal(invalidGoogleStart.status, 400, 'Google sign-in should reject missing identity and role data');
+  const invalidGoogleOtp = await request(app).post('/api/auth/google/verify').send({});
+  assert.equal(invalidGoogleOtp.status, 400, 'Google sign-in should reject missing OTP challenge data');
+
   const health = await request(app).get('/api/health');
   assert.equal(health.status, 200, 'Health endpoint should resolve');
 

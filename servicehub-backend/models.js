@@ -98,10 +98,25 @@ const performanceAnalysisSchema = new mongoose.Schema({
 
 performanceAnalysisSchema.index({ analyzedAt: -1 });
 
+const googleLoginChallengeSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  name: { type: String, required: true },
+  role: { type: String, enum: ['customer', 'provider'], required: true },
+  service: { type: String, default: '' },
+  otpHash: { type: String, required: true },
+  attempts: { type: Number, default: 0 },
+  claimedAt: { type: Date, default: null },
+  sentAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, required: true }
+}, { timestamps: true });
+
+googleLoginChallengeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 module.exports = {
   User: mongoose.model('User', userSchema),
   Booking: mongoose.model('Booking', bookingSchema),
   GroupPool: mongoose.model('GroupPool', groupPoolSchema),
   ActivityLog: mongoose.model('ActivityLog', activityLogSchema),
-  PerformanceAnalysis: mongoose.model('PerformanceAnalysis', performanceAnalysisSchema)
+  PerformanceAnalysis: mongoose.model('PerformanceAnalysis', performanceAnalysisSchema),
+  GoogleLoginChallenge: mongoose.model('GoogleLoginChallenge', googleLoginChallengeSchema)
 };

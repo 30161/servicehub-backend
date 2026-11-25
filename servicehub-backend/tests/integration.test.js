@@ -1,11 +1,15 @@
 const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const mongoose = require('mongoose');
 const request = require('supertest');
 const { app } = require('../server');
+const { Booking, User } = require('../models');
 
 async function run() {
+  const testRunId = randomUUID();
   const customerPayload = {
     name: 'Alice Customer',
-    email: 'alice.customer@example.com',
+    email: `alice.customer.${testRunId}@example.com`,
     password: 'securepass123',
     role: 'customer',
     service: 'Plumbing'
@@ -13,12 +17,26 @@ async function run() {
 
   const providerPayload = {
     name: 'Bob Provider',
-    email: 'bob.provider@example.com',
+    email: `bob.provider.${testRunId}@example.com`,
     password: 'securepass123',
     role: 'provider',
     service: 'Plumbing'
   };
 
+  try {
+    await runIntegrationChecks(customerPayload, providerPayload);
+  } finally {
+    if (mongoose.connection.readyState === 1) {
+      await Promise.all([
+        Booking.deleteMany({ customerEmail: customerPayload.email }),
+        User.deleteMany({ email: { $in: [customerPayload.email, providerPayload.email] } })
+      ]);
+    }
+    await mongoose.disconnect();
+  }
+}
+
+async function runIntegrationChecks(customerPayload, providerPayload) {
   const customerRegister = await request(app).post('/api/auth/register').send(customerPayload);
   assert.equal(customerRegister.status, 201, 'Customer register should succeed');
   const providerRegister = await request(app).post('/api/auth/register').send(providerPayload);

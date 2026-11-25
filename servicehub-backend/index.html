@@ -640,7 +640,7 @@
   let services = [];
   let userBookings = [];
   let selectedService = null;
-  let selectedAccountRole = 'customer';
+  let selectedAccountRole = null;
   document.addEventListener('click', event => {
     if (event.target.closest('a[href="#"]')) event.preventDefault();
   });
@@ -1442,7 +1442,10 @@
     function openAuthModal() {
       const modal = document.getElementById('auth-modal');
       const message = document.getElementById('auth-message');
-      if (message) message.textContent = '';
+      if (message) {
+        message.textContent = '';
+        message.classList.add('hidden');
+      }
       if (modal) modal.classList.remove('hidden');
     }
 
@@ -1554,6 +1557,7 @@
             return;
           }
 
+          selectedAccountRole = null;
           if (requestedRole === 'provider') {
             window.location.href = 'provider-dashboard.html';
             return;
@@ -1561,7 +1565,6 @@
 
           await refreshUserBookings();
           showPage('user-dashboard');
-          selectedAccountRole = 'customer';
         }, 600);
       } catch (err) {
         showAuthMessage(err.message || 'Something went wrong. Please try again.', true);
@@ -1615,6 +1618,12 @@
         closeAuthModal();
         updateAuthUI();
 
+        if (hasMultipleRoles(currentUser) && !selectedAccountRole) {
+          openRoleSelectionModal(currentUser);
+          return;
+        }
+
+        selectedAccountRole = null;
         if (role === 'provider') {
           window.location.href = 'provider-dashboard.html';
           return;

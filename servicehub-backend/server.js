@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('node:fs');
 const { performance } = require('node:perf_hooks');
 const crypto = require('node:crypto');
 const mongoose = require('mongoose');
@@ -157,6 +158,49 @@ app.get('/.well-known/ard.json', (req, res) => {
     path.join(__dirname, '.well-known', 'ard.json'),
     { dotfiles: 'allow' }
   );
+});
+
+app.get(['/robots.txt', '/sitemap.xml'], (req, res) => {
+  const fileName = req.path === '/robots.txt' ? 'robots.txt' : 'sitemap.xml';
+  res.type(fileName === 'robots.txt' ? 'text/plain' : 'application/xml');
+  res.sendFile(path.join(__dirname, fileName));
+});
+
+app.get(['/index.html', '/'], (req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  fs.readFile(indexPath, 'utf8', (error, html) => {
+    if (error) return res.status(500).send('Unable to load page.');
+
+    const verificationCode = String(process.env.GOOGLE_SITE_VERIFICATION || '').trim();
+    const analyticsId = String(process.env.GOOGLE_ANALYTICS_ID || '').trim();
+    const verificationTag = verificationCode
+      ? `  <meta name="google-site-verification" content="${verificationCode.replace(/["&<>]/g, '')}">\n`
+      : '';
+    const analyticsTag = /^G-[A-Z0-9]+$/i.test(analyticsId)
+      ? `  <script async src="https://www.googletagmanager.com/gtag/js?id=${analyticsId}"></script>\n`
+        + `  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${analyticsId}');</script>\n`
+      : '';
+    res.type('html').send(html.replace('</head>', `${verificationTag}${analyticsTag}</head>`));
+  });
+});
+
+app.get('/api/seo/status', (req, res) => {
+  res.json({
+    canonicalUrl: 'https://pro-connect-g5d5.onrender.com/',
+    sitemapUrl: 'https://pro-connect-g5d5.onrender.com/sitemap.xml',
+    publicPages: [
+      'https://pro-connect-g5d5.onrender.com/',
+      'https://pro-connect-g5d5.onrender.com/performance'
+    ],
+    excludedPages: [
+      '/provider-dashboard.html',
+      '/provider-signup.html',
+      '/api/'
+    ],
+    searchConsoleVerificationConfigured: Boolean(String(process.env.GOOGLE_SITE_VERIFICATION || '').trim()),
+    analyticsConfigured: /^G-[A-Z0-9]+$/i.test(String(process.env.GOOGLE_ANALYTICS_ID || '').trim()),
+    performanceMonitoringUrl: 'https://pro-connect-g5d5.onrender.com/performance'
+  });
 });
 
 app.use(express.static(__dirname));

@@ -2,4 +2,5 @@ User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /provider-dashboard.html
-Disallow: /performance/
+
+Sitemap: https://pro-connect-g5d5.onrender.com/sitemap.xml

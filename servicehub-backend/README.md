@@ -32,6 +32,8 @@ PORT=5000
 NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/servicehub
 PAGESPEED_API_KEY=your-pagespeed-insights-api-key
+GOOGLE_SITE_VERIFICATION=
+GOOGLE_ANALYTICS_ID=
 ```
 
 Set a strong `JWT_SECRET` as well. `MONGODB_URI` can point to local MongoDB during development or MongoDB Atlas for deployment. The PageSpeed key is only read by the backend and is never sent to the frontend. Keep `.env` private.

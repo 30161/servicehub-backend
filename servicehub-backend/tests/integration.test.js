@@ -64,6 +64,18 @@ async function runIntegrationChecks(customerPayload, providerPayload) {
   const health = await request(app).get('/api/health');
   assert.equal(health.status, 200, 'Health endpoint should resolve');
 
+  const robots = await request(app).get('/robots.txt');
+  assert.equal(robots.status, 200, 'robots.txt should be served');
+  assert.match(robots.text, /Sitemap:/, 'robots.txt should reference the sitemap');
+
+  const sitemap = await request(app).get('/sitemap.xml');
+  assert.equal(sitemap.status, 200, 'Sitemap should be served');
+  assert.match(sitemap.text, /pro-connect-g5d5\.onrender\.com/, 'Sitemap should contain the public domain');
+
+  const seoStatus = await request(app).get('/api/seo/status');
+  assert.equal(seoStatus.status, 200, 'SEO status endpoint should resolve');
+  assert.equal(seoStatus.body.sitemapUrl, 'https://pro-connect-g5d5.onrender.com/sitemap.xml');
+
   const bookingRes = await request(app).post('/api/bookings').send({
     customerId,
     providerId,
